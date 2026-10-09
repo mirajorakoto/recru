@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      # e2e (Playwright) intentionally excluded from CI; run `npm run verify`
+      # locally before pushing for full coverage including the browser suite.
+      - run: npm run verify:ci
+      - run: git diff --check
+      - run: git diff --exit-code
+      - if: matrix.os == 'ubuntu-latest'
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - if: matrix.os == 'ubuntu-latest' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git ls-files -z -- \
+            README.md package.json package-lock.json integration-manifest.json \
+            Dockerfile .dockerignore docker-compose.yml docker-compose.recruitment-test.yml \
+            packages/backend packages/public-ui packages/admin-ui demo scripts deployment docs | \
+            tar --null --files-from=- -czf "techzone-recrutement-${GITHUB_REF_NAME}.tar.gz"
+          for required_file in \
+            Dockerfile \
+            docker-compose.recruitment-test.yml \
+            demo/src/main.jsx \
+            packages/backend/server.js \
+            scripts/deployment-preflight.mjs; do
+            tar -tzf "techzone-recrutement-${GITHUB_REF_NAME}.tar.gz" | grep -Fx "$required_file" >/dev/null
+          done
+          if tar -tzf "techzone-recrutement-${GITHUB_REF_NAME}.tar.gz" | grep -E '(^|/)(\.env|private/|storage/)'; then
+            echo "L’artefact contient un chemin privé interdit." >&2
+            exit 1
+          fi
+          release_dir=$(mktemp -d)
+          tar -xzf "techzone-recrutement-${GITHUB_REF_NAME}.tar.gz" -C "$release_dir"
+          docker build --tag techzone-recruitment:release-verify "$release_dir"
+      - if: matrix.os == 'ubuntu-latest' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: techzone-recrutement-${{ github.ref_name }}
+          path: techzone-recrutement-${{ github.ref_name }}.tar.gz

@@ -1,0 +1,24 @@
+# Never send local configuration, host adapters or candidate storage to the
+# Docker daemon. The image receives only its declared build inputs.
+.env
+.env.*
+deployment/*.env
+deployment/private/
+
+# Local and generated state are not build inputs.
+.git/
+node_modules/
+**/node_modules/
+demo/data/
+demo/storage/
+**/dist/
+playwright-report/
+test-results/
+coverage/
+
+# Documentation and end-to-end fixtures are not needed by the runtime image.
+docs/
+e2e/
+task.md
+packages/backend/test/
+packages/backend/scripts/

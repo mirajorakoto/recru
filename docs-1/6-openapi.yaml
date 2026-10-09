@@ -1,0 +1,303 @@
+openapi: 3.1.0
+info:
+  title: TechZone Recruitment API
+  version: 0.1.0
+  description: API publique et RH du module autonome TechZone.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+security: []
+servers:
+  - url: https://www.techzone.lat
+paths:
+  /api/recrutement/offres:
+    get:
+      operationId: listPublicJobs
+      summary: Lister les offres publiées et ouvertes
+      responses:
+        "200":
+          description: Liste publique
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total, offres]
+                properties:
+                  total: { type: integer }
+                  offres: { type: array, items: { $ref: "#/components/schemas/PublicJob" } }
+  /api/recrutement/offres/{slug}:
+    get:
+      operationId: getPublicJob
+      summary: Lire une offre publique
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Offre
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { offre: { $ref: "#/components/schemas/PublicJob" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/recrutement/offres/{publicId}/candidatures:
+    post:
+      operationId: submitApplication
+      summary: Déposer une candidature
+      parameters:
+        - in: path
+          name: publicId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [full_name, email, phone, consent, cv, turnstile_token]
+              properties:
+                full_name: { type: string, maxLength: 160 }
+                email: { type: string, format: email }
+                phone: { type: string, maxLength: 50 }
+                candidate_location: { type: string, maxLength: 160 }
+                portfolio_url: { type: string, format: uri }
+                consent: { type: boolean }
+                turnstile_token: { type: string }
+                cv: { type: string, format: binary }
+                cover_letter: { type: string, format: binary }
+      responses:
+        "202":
+          description: Dossier mis en file
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [application_id, status]
+                properties:
+                  application_id: { type: string, format: uuid }
+                  status: { const: queued }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Candidature déjà déposée }
+  /api/admin/recrutement/offres:
+    get:
+      operationId: listAdminJobs
+      security: [{ adminSession: [] }]
+      summary: Lister toutes les offres
+      responses: { "200": { description: Liste }, "401": { $ref: "#/components/responses/Unauthorized" } }
+    post:
+      operationId: createAdminJob
+      security: [{ adminSession: [] }]
+      summary: Créer une offre
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/JobInput" } } }
+      responses: { "201": { description: Offre créée }, "400": { $ref: "#/components/responses/BadRequest" }, "401": { $ref: "#/components/responses/Unauthorized" } }
+  /api/admin/recrutement/offres/{id}:
+    patch:
+      operationId: updateAdminJob
+      security: [{ adminSession: [] }]
+      summary: Modifier une offre
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      requestBody: { content: { application/json: { schema: { $ref: "#/components/schemas/JobInput" } } } }
+      responses: { "200": { description: Offre modifiée }, "400": { $ref: "#/components/responses/BadRequest" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { $ref: "#/components/responses/NotFound" } }
+    delete:
+      operationId: deleteAdminJob
+      security: [{ adminSession: [] }]
+      summary: Supprimer une offre sans candidature
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { "204": { description: Supprimée }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: Offre non supprimable } }
+  /api/admin/recrutement/candidatures:
+    get:
+      operationId: listApplications
+      security: [{ adminSession: [] }]
+      summary: Lister les candidatures avec pagination par curseur
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { in: query, name: cursor, schema: { type: string } }
+        - { in: query, name: job_id, schema: { type: integer, minimum: 1 } }
+        - { in: query, name: processing_status, schema: { enum: [received, queued, processing, analysis_ready, analysis_failed] } }
+        - { in: query, name: hr_decision, schema: { enum: [to_review, selected, rejected, withdrawn] } }
+      responses:
+        "200":
+          description: Liste paginée sans analyse ni coordonnées complètes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [candidatures, pagination]
+                properties:
+                  candidatures: { type: array, items: { $ref: "#/components/schemas/ApplicationListItem" } }
+                  pagination: { $ref: "#/components/schemas/CursorPagination" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/admin/recrutement/candidatures/{id}:
+    get:
+      operationId: getApplication
+      security: [{ adminSession: [] }]
+      summary: Lire un dossier et son analyse
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Dossier }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { $ref: "#/components/responses/NotFound" } }
+  /api/admin/recrutement/candidatures/{id}/events:
+    get:
+      operationId: listApplicationEvents
+      security: [{ adminSession: [] }]
+      summary: Lire l'historique des événements d'une candidature
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Historique }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { $ref: "#/components/responses/NotFound" } }
+  /api/admin/recrutement/candidatures/{id}/fichiers/{fileId}:
+    get:
+      operationId: downloadApplicationFile
+      security: [{ adminSession: [] }]
+      summary: Télécharger un document candidat déchiffré
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+        - in: path
+          name: fileId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: Fichier binaire }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/admin/recrutement/candidatures/{id}/decision:
+    patch:
+      operationId: setApplicationDecision
+      security: [{ adminSession: [] }]
+      summary: Enregistrer la décision humaine
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { enum: [to_review, selected, rejected, withdrawn] }
+      responses: { "200": { description: Décision enregistrée }, "400": { $ref: "#/components/responses/BadRequest" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { $ref: "#/components/responses/NotFound" } }
+  /api/admin/recrutement/candidatures/{id}/retry-analysis:
+    post:
+      operationId: retryApplicationAnalysis
+      security: [{ adminSession: [] }]
+      summary: Remet une analyse échouée en file d'attente
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses:
+        "202": { description: Analyse remise en file }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { description: Analyse non relançable dans son état actuel }
+  /api/admin/recrutement/candidatures/{id}/email-draft:
+    post:
+      operationId: createSelectionEmailDraft
+      security: [{ adminSession: [] }]
+      summary: Générer un brouillon après décision selected
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Brouillon }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: Décision incompatible } }
+  /api/admin/recrutement/candidatures/{id}/emails/send:
+    post:
+      operationId: sendSelectionEmail
+      security: [{ adminSession: [] }]
+      summary: Envoyer après prévisualisation et confirmation
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmed, idempotency_key, subject, html]
+              properties:
+                confirmed: { const: true }
+                idempotency_key: { type: string }
+                subject: { type: string }
+                html: { type: string }
+      responses: { "200": { description: Envoyé ou envoi déjà confirmé }, "400": { $ref: "#/components/responses/BadRequest" }, "401": { $ref: "#/components/responses/Unauthorized" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: Confirmation ou décision manquante } }
+components:
+  securitySchemes:
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: techzone_admin_session
+  schemas:
+    Criterion:
+      type: object
+      required: [label, required]
+      properties: { label: { type: string }, required: { type: boolean } }
+    PublicJob:
+      type: object
+      required: [public_id, slug, title, summary, description, criteria, location, work_mode, contract_type, employer_type, urgent, image]
+      properties:
+        public_id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        summary: { type: string }
+        description: { type: string }
+        criteria: { type: array, items: { $ref: "#/components/schemas/Criterion" } }
+        location: { type: string }
+        work_mode: { enum: [onsite, hybrid, remote] }
+        contract_type: { enum: [stage, cdd, cdi, alternance, freelance, interim, autre] }
+        employer_type: { enum: [techzone, partner] }
+        partner_name: { type: [string, "null"] }
+        urgent: { type: boolean }
+        application_deadline: { type: [string, "null"], format: date-time }
+        image:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri-reference }
+                alt_text: { type: string }
+    ApplicationListItem:
+      type: object
+      required: [id, public_id, full_name, email, job_id, job_title, processing_status, hr_decision, created_at]
+      properties:
+        id: { type: integer }
+        public_id: { type: string, format: uuid }
+        full_name: { type: string }
+        email: { type: string, format: email }
+        job_id: { type: integer }
+        job_title: { type: string }
+        job_slug: { type: string }
+        processing_status: { enum: [received, queued, processing, analysis_ready, analysis_failed] }
+        hr_decision: { enum: [to_review, selected, rejected, withdrawn] }
+        created_at: { type: string, format: date-time }
+    CursorPagination:
+      type: object
+      required: [limit, next_cursor]
+      properties:
+        limit: { type: integer }
+        next_cursor: { type: [string, "null"] }
+    JobInput:
+      type: object
+      required: [slug, title, summary, description, criteria, location, work_mode, contract_type, employer_type, status, urgent]
+      properties:
+        slug: { type: string, pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        title: { type: string, maxLength: 300 }
+        summary: { type: string, maxLength: 300 }
+        description: { type: string, maxLength: 10000 }
+        criteria: { type: array, items: { $ref: "#/components/schemas/Criterion" } }
+        location: { type: string, maxLength: 300 }
+        work_mode: { enum: [onsite, hybrid, remote] }
+        contract_type: { enum: [stage, cdd, cdi, alternance, freelance, interim, autre] }
+        employer_type: { enum: [techzone, partner] }
+        partner_name: { type: [string, "null"] }
+        status: { enum: [draft, published, closed, archived] }
+        urgent: { type: boolean }
+        application_deadline: { type: [string, "null"], format: date-time }
+        image_media_id: { type: [integer, "null"] }
+        sender_display_name: { type: [string, "null"] }
+        signature_html: { type: [string, "null"] }
+        reply_to: { type: [string, "null"], format: email }
+  responses:
+    BadRequest: { description: Requête invalide }
+    Unauthorized: { description: Session admin requise }
+    NotFound: { description: Ressource introuvable }

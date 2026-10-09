@@ -1,0 +1,55 @@
+{
+  "name": "techzone-recrutement",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "demo"
+  ],
+  "scripts": {
+    "backlog:validate": "node scripts/github-backlog.mjs validate",
+    "backlog:dry-run": "node scripts/github-backlog.mjs publish --sprints S1,S2 --dry-run",
+    "build": "npm run build --workspace @techzone/recruitment-public && npm run build --workspace @techzone/recruitment-admin && npm run build --workspace @techzone/recruitment-demo",
+    "dev": "npm run build:ui && npm-run-all --parallel dev:api dev:web dev:public dev:admin",
+    "setup:env": "node scripts/setup-local-env.mjs",
+    "dev:api": "npm run dev --workspace @techzone/recruitment-backend",
+    "dev:web": "npm run dev --workspace @techzone/recruitment-demo",
+    "dev:public": "npm run build --workspace @techzone/recruitment-public -- --watch",
+    "dev:admin": "npm run build --workspace @techzone/recruitment-admin -- --watch",
+    "build:ui": "npm run build --workspace @techzone/recruitment-public && npm run build --workspace @techzone/recruitment-admin",
+    "docs:generate": "node scripts/generate-ats-resources.mjs",
+    "deployment:preflight": "node scripts/deployment-preflight.mjs",
+    "deployment:test:preflight": "RECRUITMENT_TEST_DEPLOYMENT=true RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env RECRUITMENT_COMPOSE_FILE=docker-compose.recruitment-test.yml RECRUITMENT_COMPOSE_PROJECT=techzone-recruitment-test node scripts/deployment-preflight.mjs",
+    "deployment:test:session": "RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env node scripts/create-test-session.mjs && (RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env node scripts/schedule-test-session-cleanup.mjs || (RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env node scripts/cleanup-test-session.mjs && exit 1))",
+    "deployment:test:browser-account": "RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env node scripts/create-test-browser-account.mjs && (RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env node scripts/schedule-test-session-cleanup.mjs || (RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env node scripts/cleanup-test-session.mjs && exit 1))",
+    "deployment:test:session:cleanup": "RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env node scripts/cleanup-test-session.mjs",
+    "deployment:test:verify": "RECRUITMENT_DEPLOY_ENV=deployment/recruitment.test.env node scripts/verify-test-deployment.mjs",
+    "deployment:external-check": "node scripts/deployment-external-check.mjs",
+    "test": "npm run test --workspace @techzone/recruitment-backend && npm run test --workspace @techzone/recruitment-public && npm run test --workspace @techzone/recruitment-admin",
+    "test:integration": "npm run test:integration --workspace @techzone/recruitment-backend",
+    "test:container": "node scripts/container-smoke.mjs",
+    "test:e2e": "playwright test",
+    "verify": "npm run docs:generate && npm test && npm run test:e2e && npm run build",
+    "verify:ci": "npm run docs:generate && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "docx": "^9.5.1",
+    "jszip": "^3.10.1",
+    "npm-run-all": "^4.1.5",
+    "pdfkit": "^0.17.2",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "express": {
+      "qs": "6.16.0"
+    }
+  },
+  "dependencies": {
+    "qs": "^6.16.0"
+  }
+}

@@ -1,0 +1,6 @@
+# GitHub preserves the closed PR #12 ref containing this known, remediated
+# incident. Restrict the exception to that immutable historical commit.
+[allowlist]
+commits = [
+  "5582ee05f7cc41cf8667f13e4e808ae75a792741",
+]

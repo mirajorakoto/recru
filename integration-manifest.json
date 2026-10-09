@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "publicRoutes": [
+    "/recrutement",
+    "/recrutement/:slug",
+    "/recrutement/:slug/postuler",
+    "/recrutement/ressources/cv-ats"
+  ],
+  "apiMounts": {
+    "/api/recrutement": "module.publicRouter",
+    "/api/admin/recrutement": "requireAdminSession -> module.adminRouter"
+  },
+  "hostAdapters": [
+    "db",
+    "requireAdminSession",
+    "transporter",
+    "resolveMediaAsset",
+    "config"
+  ],
+  "persistentPaths": [
+    "RECRUITMENT_STORAGE_DIR"
+  ],
+  "releaseContents": [
+    "packages/backend/src",
+    "packages/public-ui/dist",
+    "packages/admin-ui/dist",
+    "demo/public/resources",
+    "docs",
+    "deployment"
+  ],
+  "deploymentSnippets": {
+    "nginx": "deployment/nginx-recruitment.conf",
+    "environment": "deployment/recruitment.env.template"
+  },
+  "hostEdits": [
+    "mount Express routers and worker lifecycle",
+    "register React public routes",
+    "register the Recruitment admin tab",
+    "run module migrations during deployment",
+    "set Nginx client_max_body_size 21m on the application endpoint"
+  ]
+}

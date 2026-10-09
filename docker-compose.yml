@@ -1,0 +1,29 @@
+services:
+  techzone-recruitment:
+    build:
+      context: .
+    image: techzone-recrutement-backend:local
+    ports:
+      # Choose a free host-only port in deployment/compose.env. Never bind a
+      # recruitment container to every interface on this shared VPS.
+      - "127.0.0.1:${RECRUITMENT_HOST_PORT:?Configure RECRUITMENT_HOST_PORT in deployment/compose.env}:3111"
+    env_file:
+      - ./deployment/recruitment.env
+    volumes:
+      - recruitment_data:/var/lib/techzone/recruitment
+      - ${TECHZONE_HOST_BACKEND_ROOT:?Configure TECHZONE_HOST_BACKEND_ROOT in deployment/compose.env}:/opt/techzone/host-backend:ro
+      - ${TECHZONE_HOST_SHARED_ROOT:?Configure TECHZONE_HOST_SHARED_ROOT in deployment/compose.env}:/opt/techzone/shared:ro
+      # SQLite needs its database, WAL and SHM files writable; all host code
+      # remains covered by the read-only parent mount above.
+      - ${TECHZONE_HOST_DB_DIRECTORY:?Configure TECHZONE_HOST_DB_DIRECTORY in deployment/compose.env}:/opt/techzone/host-backend/db:rw
+      - ${RECRUITMENT_HOST_ADAPTER_SOURCE:?Configure RECRUITMENT_HOST_ADAPTER_SOURCE in deployment/compose.env}:/opt/techzone/private/recruitment-host-adapter.cjs:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3111/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  recruitment_data:

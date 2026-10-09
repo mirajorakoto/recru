@@ -1,0 +1,1 @@
+export default { esbuild: { jsx: "automatic" }, oxc: { jsx: { runtime: "automatic" } }, test: { environment: "jsdom", setupFiles: ["./src/setupTests.js"], css: false, globalSetup: ["./e2e/setup.mjs"], include: ["e2e/*.e2e.test.jsx"] } };
