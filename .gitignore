@@ -20,4 +20,8 @@ storage/
 *.p12
 *.pfx
 .txt
-maquettes/
+maquettes/node_modules/
+.env
+*.db
+*.sqlite
+dist/

@@ -143,9 +143,10 @@ pipeline {
         sh '''
           export WEB_PORT="$CI_WEB_PORT" IMAGE_TAG="$TAG"
           COMPOSE="docker compose -p $CI_PROJECT -f deploy/docker-compose.ci.yml"
-          BASE="http://127.0.0.1:$CI_WEB_PORT"
+          BASE="http://web:8080"
 
           $COMPOSE up -d --wait --wait-timeout 180
+          docker network connect "${CI_PROJECT}_default" "$(hostname)"
 
           curl -fsS "$BASE/healthz"
           curl -fsS "$BASE/api/health" | jq -e '.ok == true'
@@ -205,6 +206,7 @@ pipeline {
   post {
     always {
       // La pile de test est toujours supprimée, avec ses volumes.
+      sh 'docker network disconnect -f "${CI_PROJECT}_default" "$(hostname)" || true'
       sh 'docker compose -p "$CI_PROJECT" -f deploy/docker-compose.ci.yml down -v --remove-orphans || true'
       sh 'docker image prune -f --filter "until=168h" || true'
       archiveArtifacts artifacts: 'packages/*/dist/**', allowEmptyArchive: true
