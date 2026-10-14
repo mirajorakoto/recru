@@ -2,3 +2,6 @@
 Jenkinsfile text eol=lf
 * text=auto eol=lf
 *.png binary
+Jenkinsfile text eol=lf
+* text=auto eol=lf
+*.png binary
