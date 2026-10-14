@@ -1,0 +1,18 @@
+# Utilisé à la place de .dockerignore pour backend.Dockerfile (BuildKit).
+.git
+**/.git
+.env
+.env.*
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/coverage
+**/test-results
+demo
+deploy
+Jenkinsfile
+packages/admin-ui
+packages/public-ui
+packages/backend/test
+**/*.md

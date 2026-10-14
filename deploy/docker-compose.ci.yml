@@ -1,0 +1,64 @@
+# Pile de RECETTE LOCALE : serveur + application web (nginx).
+# Ne remplace pas le docker-compose.yml de production situé à la racine du dépôt.
+#
+#   docker compose -f deploy/docker-compose.ci.yml up -d --build
+#   -> site public : http://localhost:8088/recrutement
+#   -> console RH  : http://localhost:8088/admin/recrutement   (session RH factice : réservée à la machine locale)
+#
+# Variables facultatives : WEB_PORT (8088), IMAGE_TAG (local), MAIL_MODE (simulation), PRIVACY_CONTACT_EMAIL.
+# Si un fichier .env existe à la racine du dépôt (clé OpenAI, SMTP…), il est lu par le serveur.
+name: techzone-recrutement
+
+services:
+  backend:
+    image: techzone/recruitment-backend:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      NODE_ENV: development          # demo-server.js : cookies sans « Secure », session RH factice
+      PORT: "3111"
+      LISTEN_HOST: 0.0.0.0           # joignable par nginx dans le réseau Docker
+      MAIL_MODE: ${MAIL_MODE:-simulation}   # « auto » pour envoyer de vrais e-mails avec le SMTP du .env
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${WEB_PORT:-8088}}
+      PRIVACY_CONTACT_EMAIL: ${PRIVACY_CONTACT_EMAIL:-contact@example.test}
+    volumes:
+      - recrutement-data:/app/demo   # base SQLite et CV chiffrés
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    expose:
+      - "3111"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3111/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    image: techzone/recruitment-web:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8088}:8080"   # exposé uniquement sur cette machine
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  recrutement-data:

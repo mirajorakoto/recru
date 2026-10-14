@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build"
+  "dev": "vite --host 0.0.0.0",
+  "build": "vite build"
   },
   "dependencies": {
     "@techzone/recruitment-admin": "0.1.0",

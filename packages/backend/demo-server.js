@@ -177,8 +177,9 @@ app.use((error, req, res, next) => {
 });
 
 const port = config.port;
-const server = app.listen(port, "127.0.0.1", () => {
-  console.log(`TechZone recruitment demo API: http://127.0.0.1:${port}`);
+// LISTEN_HOST vaut 127.0.0.1 par défaut ; 0.0.0.0 dans un conteneur Docker (voir deploy/docker-compose.ci.yml).
+const server = app.listen(port, config.listenHost, () => {
+  console.log(`TechZone recruitment demo API: http://${config.listenHost}:${port}`);
   moduleInstance.start();
 });
 
