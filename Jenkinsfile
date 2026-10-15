@@ -55,13 +55,16 @@ pipeline {
       }
     }
 
+    stage('Installation') {
+      steps { inNode('.', 'npm ci') }
+    }
+
     stage('Tests') {
       parallel {
         stage('Serveur') {
           steps {
             inNode('packages/backend',
-              'if [ -f package-lock.json ]; then npm ci; else npm install; fi && ' +
-              'mkdir -p test-results && ' +
+                            'mkdir -p test-results && ' +
               'NODE_ENV=test PRIVACY_CONTACT_EMAIL=ci@example.test node --test ' +
               '--test-reporter=spec --test-reporter-destination=stdout ' +
               '--test-reporter=junit --test-reporter-destination=test-results/junit.xml')
@@ -71,8 +74,7 @@ pipeline {
         stage('Console RH') {
           steps {
             inNode('packages/admin-ui',
-              'if [ -f package-lock.json ]; then npm ci; else npm install; fi && ' +
-              'mkdir -p test-results && ' +
+                            'mkdir -p test-results && ' +
               'npx vitest --run --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml && ' +
               'npm run build')
           }
@@ -81,8 +83,7 @@ pipeline {
         stage('Site public') {
           steps {
             inNode('packages/public-ui',
-              'if [ -f package-lock.json ]; then npm ci; else npm install; fi && ' +
-              'mkdir -p test-results && ' +
+                            'mkdir -p test-results && ' +
               'npx vitest --run --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml && ' +
               'npm run build')
           }
