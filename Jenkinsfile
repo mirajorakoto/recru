@@ -6,7 +6,7 @@
 // Exécute un script dans un conteneur Node, à la racine du dépôt + sous-dossier « dir ».
 // L'utilisateur du conteneur est celui de Jenkins : les fichiers créés restent supprimables par Jenkins.
 def inNode(String dir, String script) {
-  def cmd = 'docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e npm_config_cache=/tmp/.npm -e CI=true ' +
+  def cmd = 'docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e npm_config_cache=/tmp/.npm -e CI=true -v tz-npm-cache:/tmp/.npm -e npm_config_fetch_retries=6 -e npm_config_fetch_retry_mintimeout=15000 -e npm_config_fetch_retry_maxtimeout=120000 -e npm_config_fetch_timeout=600000 ' +
             '-v "$WORKSPACE":/w -w "/w/' + dir + '" ' + env.NODE_IMAGE + " bash -ec '" + script + "'"
   sh cmd
 }
@@ -16,7 +16,7 @@ pipeline {
 
   options {
     timestamps()
-    timeout(time: 60, unit: 'MINUTES')
+    timeout(time: 120, unit: 'MINUTES')
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '15'))
   }
@@ -56,7 +56,7 @@ pipeline {
     }
 
     stage('Installation') {
-      steps { inNode('.', 'npm ci') }
+      steps { inNode('.', 'npm ci --no-audit --no-fund --prefer-offline') }
     }
 
     stage('Tests') {
