@@ -16,6 +16,13 @@ RUN --mount=type=cache,target=/root/.npm \
 # --- 2) Image d'exécution, légère et sans outils de compilation.
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ENV NODE_ENV=production
+# Sécurité : correctifs de l'OS, et retrait des outils de build inutiles à l'exécution.
+RUN apt-get update \
+ && apt-get -y --no-install-recommends upgrade \
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-v*
 WORKDIR /app/packages/backend
 COPY --from=deps --chown=node:node /app/packages/backend/node_modules ./node_modules
 COPY --chown=node:node packages/backend/ ./

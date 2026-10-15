@@ -21,6 +21,10 @@ RUN npm run build
 
 # --- 2) nginx sans privilèges (écoute sur le port 8080)
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+# Sécurité : correctifs Alpine, puis retour à l'utilisateur sans privilèges.
+USER root
+RUN apk upgrade --no-cache
+USER 101
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/deploy/web/dist /usr/share/nginx/html
 EXPOSE 8080

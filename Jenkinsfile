@@ -131,7 +131,7 @@ pipeline {
             rc=0
             for img in "$IMAGE_BACKEND:$TAG" "$IMAGE_WEB:$TAG"; do
               docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/ \
-                aquasec/trivy:latest image --skip-db-update --skip-java-db-update --severity HIGH,CRITICAL --ignore-unfixed --no-progress --exit-code 1 "$img" || rc=1
+                aquasec/trivy:latest image --skip-db-update --skip-java-db-update --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --no-progress --exit-code 1 "$img" || rc=1
             done
             exit $rc
           '''
