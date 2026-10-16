@@ -1,14 +1,25 @@
 // Pipeline CI/CD — TechZone Recrutement
-// Chaîne : code -> tests (serveur, console RH, site public) -> sécurité (dépendances, secrets)
+// Chaîne : code -> installation -> tests (serveur, console RH, site public) -> sécurité (dépendances, secrets)
 //          -> images Docker -> analyse Trivy -> test de bout en bout (docker compose) -> publication / déploiement.
 // Les commandes Node s'exécutent dans des conteneurs : aucun Node n'est requis sur la machine Jenkins, seulement Docker.
+//
+// Résultat du build :
+//   VERT     tout est bon
+//   JAUNE    le pipeline est allé au bout, mais un contrôle a signalé un problème (tests, failles, secrets)
+//   ROUGE    une étape essentielle a échoué : les étapes suivantes sont ignorées
 
 // Exécute un script dans un conteneur Node, à la racine du dépôt + sous-dossier « dir ».
-// L'utilisateur du conteneur est celui de Jenkins : les fichiers créés restent supprimables par Jenkins.
+// Le cache npm est un volume Docker persistant (tz-npm-cache) : les paquets ne sont téléchargés qu'une fois.
 def inNode(String dir, String script) {
   def cmd = 'docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e npm_config_cache=/tmp/.npm -e CI=true -v tz-npm-cache:/tmp/.npm -e npm_config_fetch_retries=6 -e npm_config_fetch_retry_mintimeout=15000 -e npm_config_fetch_retry_maxtimeout=120000 -e npm_config_fetch_timeout=600000 ' +
             '-v "$WORKSPACE":/w -w "/w/' + dir + '" ' + env.NODE_IMAGE + " bash -ec '" + script + "'"
   sh cmd
+}
+
+// Fin de commande des tests : bloquante si STRICT_TESTS est coché, sinon le build continue
+// (les échecs restent visibles : le build passe en JAUNE via le rapport de tests).
+def softFail() {
+  return params.STRICT_TESTS ? '' : ' || true'
 }
 
 pipeline {
@@ -21,14 +32,18 @@ pipeline {
     buildDiscarder(logRotator(numToKeepStr: '15'))
   }
 
-  // triggers { pollSCM('H/5 * * * *') }   // à activer si le dépôt n'envoie pas de webhook
+  // Un build part tout seul quand un nouveau commit arrive sur le dépôt (vérification toutes les ~5 minutes).
+  // Pour ne lancer les builds qu'à la main, mettre cette ligne en commentaire.
+  triggers { pollSCM('H/5 * * * *') }
 
   parameters {
+    booleanParam(name: 'STRICT_TESTS', defaultValue: false,
+                 description: 'Un test en échec fait ÉCHOUER le build (à activer par défaut quand tous les tests passent)')
     booleanParam(name: 'DEPLOY', defaultValue: false,
-                 description: 'Déployer la recette locale (http://localhost:8088) après un build réussi')
+                 description: 'Déployer la recette locale (http://localhost:8088) après un build réussi. Un build automatique (nouveau commit) déploie seulement s\'il est entièrement vert.')
     booleanParam(name: 'PUSH_IMAGES', defaultValue: false,
                  description: 'Publier les images dans un registre (identifiant Jenkins « registry-credentials » requis)')
-    string(name: 'REGISTRY', defaultValue: 'ghcr.io/votre-compte',
+    string(name: 'REGISTRY', defaultValue: 'ghcr.io/mirajorakoto',
            description: 'Registre et espace de noms, ex. ghcr.io/mirajorakoto')
   }
 
@@ -55,6 +70,7 @@ pipeline {
       }
     }
 
+    // Un seul « npm ci » à la racine : les trois paquets partagent le même node_modules (monorepo).
     stage('Installation') {
       steps { inNode('.', 'npm ci --no-audit --no-fund --prefer-offline') }
     }
@@ -64,18 +80,18 @@ pipeline {
         stage('Serveur') {
           steps {
             inNode('packages/backend',
-                            'mkdir -p test-results && ' +
+              'mkdir -p test-results && ' +
               'NODE_ENV=test PRIVACY_CONTACT_EMAIL=ci@example.test node --test ' +
               '--test-reporter=spec --test-reporter-destination=stdout ' +
-              '--test-reporter=junit --test-reporter-destination=test-results/junit.xml || true')
+              '--test-reporter=junit --test-reporter-destination=test-results/junit.xml' + softFail())
           }
           post { always { junit allowEmptyResults: true, testResults: 'packages/backend/test-results/*.xml' } }
         }
         stage('Console RH') {
           steps {
             inNode('packages/admin-ui',
-                            'mkdir -p test-results && ' +
-              'npx vitest --run --testTimeout=20000 --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml || true; ' +
+              'mkdir -p test-results && ' +
+              'npx vitest --run --testTimeout=20000 --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml' + softFail() + '; ' +
               'npm run build')
           }
           post { always { junit allowEmptyResults: true, testResults: 'packages/admin-ui/test-results/*.xml' } }
@@ -83,8 +99,8 @@ pipeline {
         stage('Site public') {
           steps {
             inNode('packages/public-ui',
-                            'mkdir -p test-results && ' +
-              'npx vitest --run --testTimeout=20000 --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml || true; ' +
+              'mkdir -p test-results && ' +
+              'npx vitest --run --testTimeout=20000 --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml' + softFail() + '; ' +
               'npm run build')
           }
           post { always { junit allowEmptyResults: true, testResults: 'packages/public-ui/test-results/*.xml' } }
@@ -96,18 +112,23 @@ pipeline {
       parallel {
         stage('Dépendances (npm audit)') {
           steps {
-            // Un résultat critique rend le build « instable » sans l'interrompre.
-            catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-              inNode('packages/backend', 'npm audit --omit=dev --audit-level=high')
-              inNode('packages/admin-ui', 'npm audit --omit=dev --audit-level=high')
-              inNode('packages/public-ui', 'npm audit --omit=dev --audit-level=high')
+            // Chaque paquet est audité séparément : un résultat n'en masque plus un autre.
+            // Une faille HIGH ou CRITICAL rend le build « instable » sans l'interrompre.
+            script {
+              for (d in ['packages/backend', 'packages/admin-ui', 'packages/public-ui']) {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                  inNode(d, 'npm audit --omit=dev --audit-level=high')
+                }
+              }
             }
           }
         }
         stage('Secrets (Gitleaks)') {
           steps {
+            // Analyse l'historique Git (ce qui est réellement commité), pas node_modules.
+            // En cas de problème d'accès à .git, remplacer par : detect --no-git --source /repo
             catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-              sh 'docker run --rm -v "$WORKSPACE":/repo ghcr.io/gitleaks/gitleaks:latest detect --no-git --source /repo --redact --no-banner'
+              sh 'docker run --rm -v "$WORKSPACE":/repo ghcr.io/gitleaks/gitleaks:latest detect --source /repo --redact --no-banner'
             }
           }
         }
@@ -117,13 +138,15 @@ pipeline {
     stage('Images Docker') {
       steps {
         sh '''
-          docker build -f deploy/backend.Dockerfile -t "$IMAGE_BACKEND:$TAG" -t "$IMAGE_BACKEND:latest" .
-          docker build -f deploy/web.Dockerfile     -t "$IMAGE_WEB:$TAG"     -t "$IMAGE_WEB:latest" .
+          docker build -f deploy/backend.Dockerfile --label org.opencontainers.image.revision="$GIT_SHORT" --label org.opencontainers.image.version="$TAG" -t "$IMAGE_BACKEND:$TAG" -t "$IMAGE_BACKEND:latest" .
+          docker build -f deploy/web.Dockerfile     --label org.opencontainers.image.revision="$GIT_SHORT" --label org.opencontainers.image.version="$TAG" -t "$IMAGE_WEB:$TAG"     -t "$IMAGE_WEB:latest" .
           docker images --format "table {{.Repository}}\\t{{.Tag}}\\t{{.Size}}" | grep techzone/ || true
         '''
       }
     }
 
+    // La base de vulnérabilités est préchargée dans le volume trivy-cache (réseau lent).
+    // Pour la rafraîchir : docker run --rm -v trivy-cache:/root/.cache/ aquasec/trivy:latest image --download-db-only --timeout 60m
     stage('Analyse des images (Trivy)') {
       steps {
         catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
@@ -131,7 +154,7 @@ pipeline {
             rc=0
             for img in "$IMAGE_BACKEND:$TAG" "$IMAGE_WEB:$TAG"; do
               docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/ \
-                aquasec/trivy:latest image --skip-db-update --skip-java-db-update --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --no-progress --exit-code 1 "$img" || rc=1
+                aquasec/trivy:latest image --skip-db-update --skip-java-db-update --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --no-progress --timeout 10m --exit-code 1 "$img" || rc=1
             done
             exit $rc
           '''
@@ -139,6 +162,8 @@ pipeline {
       }
     }
 
+    // Jenkins est lui-même dans un conteneur : il se connecte au réseau de la pile de test
+    // et appelle le site par son nom de service (web:8080), pas par 127.0.0.1.
     stage('Test de bout en bout') {
       steps {
         sh '''
@@ -191,8 +216,17 @@ pipeline {
       }
     }
 
+    // Déploiement : à la demande (DEPLOY coché), ou automatiquement pour un nouveau commit si le build est entièrement VERT.
     stage('Déploiement de la recette') {
-      when { expression { return params.DEPLOY } }
+      when {
+        anyOf {
+          expression { return params.DEPLOY }
+          allOf {
+            triggeredBy 'SCMTrigger'
+            expression { return currentBuild.currentResult == 'SUCCESS' }
+          }
+        }
+      }
       steps {
         sh '''
           export WEB_PORT=8088 IMAGE_TAG="$TAG"
@@ -213,7 +247,7 @@ pipeline {
       archiveArtifacts artifacts: 'packages/*/dist/**', allowEmptyArchive: true
     }
     success  { echo "Build ${env.TAG} réussi." }
-    unstable { echo 'Build instable : consultez les étapes de sécurité (npm audit, Gitleaks, Trivy).' }
+    unstable { echo 'Build instable : consultez les tests et les étapes de sécurité (npm audit, Gitleaks, Trivy).' }
     failure  { echo 'Build en échec : consultez le journal de l\'étape en rouge.' }
   }
 }
