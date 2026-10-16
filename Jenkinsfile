@@ -75,18 +75,20 @@ pipeline {
       steps { inNode('.', 'npm ci --no-audit --no-fund --prefer-offline') }
     }
 
-    stage('Tests') {
+    // Le serveur est testé seul : ses tests démarrent de vrais processus et sont sensibles à la charge.
+    stage('Tests du serveur') {
+      steps {
+        inNode('packages/backend',
+          'mkdir -p test-results && ' +
+          'NODE_ENV=test PRIVACY_CONTACT_EMAIL=ci@example.test node --test ' +
+          '--test-reporter=spec --test-reporter-destination=stdout ' +
+          '--test-reporter=junit --test-reporter-destination=test-results/junit.xml' + softFail())
+      }
+      post { always { junit allowEmptyResults: true, testResults: 'packages/backend/test-results/*.xml' } }
+    }
+
+    stage('Tests des interfaces') {
       parallel {
-        stage('Serveur') {
-          steps {
-            inNode('packages/backend',
-              'mkdir -p test-results && ' +
-              'NODE_ENV=test PRIVACY_CONTACT_EMAIL=ci@example.test node --test ' +
-              '--test-reporter=spec --test-reporter-destination=stdout ' +
-              '--test-reporter=junit --test-reporter-destination=test-results/junit.xml' + softFail())
-          }
-          post { always { junit allowEmptyResults: true, testResults: 'packages/backend/test-results/*.xml' } }
-        }
         stage('Console RH') {
           steps {
             inNode('packages/admin-ui',
