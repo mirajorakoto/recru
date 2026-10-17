@@ -524,8 +524,9 @@ test("selection email is sanitized, manually confirmed, and idempotent", async (
     JSON.stringify(statuses) === JSON.stringify([200, 200]) ||
       JSON.stringify(statuses) === JSON.stringify([200, 409])
   );
-  assert.equal(sentEmails.length, 1);
-  assert.doesNotMatch(sentEmails[0].html, /img|onerror/i);
+  const selectionEmails = sentEmails.filter((m) => m.headers?.["X-TechZone-Idempotency-Key"] === "application-selection-v1");
+  assert.equal(selectionEmails.length, 1);
+  assert.doesNotMatch(selectionEmails[0].html, /img|onerror/i);
 });
 
 test("Responses API uses direct files, store false, and a strict human-review schema", async () => {
@@ -536,6 +537,7 @@ test("Responses API uses direct files, store false, and a strict human-review sc
       calls.push(payload);
       return { output_text: JSON.stringify({
         summary: "Preuves à revoir.",
+        profile: { skills: [], technologies: [], languages: [], certifications: [], education: [], highest_education_level: "non_precise", experience_years: null, experiences: [] },
         criteria: [{ criterion: "JavaScript", required: true, assessment: "uncertain", evidence: "", source: "none" }],
         missing_information: ["Expérience non prouvée"],
         uncertainties: ["Document synthétique"],

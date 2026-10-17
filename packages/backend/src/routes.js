@@ -342,7 +342,6 @@ function toApplicationListItem(application) {
     final_complete: Boolean(application.final_complete),
     experience_years: application.experience_years ?? null,
     education_level: application.education_level ?? null,
-    phone: application.phone ?? null,
     created_at: application.created_at
   };
 }

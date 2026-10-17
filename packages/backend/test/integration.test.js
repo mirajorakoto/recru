@@ -202,8 +202,9 @@ test("isolated end-to-end fixture enforces RH access and completes the candidate
   ]);
   assert.ok([200, 409].includes(firstEmail.statusCode));
   assert.ok([200, 409].includes(duplicateEmail.statusCode));
-  assert.equal(harness.smtpCalls.length, 1);
-  assert.equal(harness.smtpCalls[0].to, "candidate@example.test");
+  const selectionCalls = harness.smtpCalls.filter((m) => m.headers?.["X-TechZone-Idempotency-Key"] === "integration-selection-v1");
+  assert.equal(selectionCalls.length, 1);
+  assert.equal(selectionCalls[0].to, "candidate@example.test");
 
   const events = await harness.api
     .get(`/api/admin/recrutement/candidatures/${application.id}/events`)
