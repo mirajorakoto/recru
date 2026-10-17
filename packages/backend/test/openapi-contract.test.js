@@ -24,7 +24,9 @@ test("OpenAPI documents every public and RH Express route with its method and RH
     path: toOpenApiPath(match[1] === "adminRouter" ? "/api/admin/recrutement" : "/api/recrutement", match[3])
   }));
 
-  assert.equal(discovered.length, 15, "La fixture doit suivre toutes les routes Express du module.");
+  const declared = [...source.matchAll(/(publicRouter|adminRouter)\.(get|post|put|patch|delete|all)\(/g)].length;
+  assert.ok(discovered.length > 0, "Aucune route trouvée : le motif de découverte est à revoir.");
+  assert.equal(discovered.length, declared, "Chaque route Express (get, post, put, patch, delete, all) doit être découverte, donc documentée.");
   for (const route of discovered) {
     const blockPattern = "^  " + escapeRegExp(route.path) + ":\\n([\\s\\S]*?)(?=^  /api/|^components:)";
     const pathBlock = openApi.match(new RegExp(blockPattern, "m"))?.[1];
