@@ -34,7 +34,7 @@ pipeline {
 
   // Un build part tout seul quand un nouveau commit arrive sur le dépôt (vérification toutes les ~5 minutes).
   // Pour ne lancer les builds qu'à la main, mettre cette ligne en commentaire.
-  triggers { pollSCM('H/5 * * * *') }
+  triggers { pollSCM('H/2 * * * *') }
 
   parameters {
     booleanParam(name: 'STRICT_TESTS', defaultValue: true,
