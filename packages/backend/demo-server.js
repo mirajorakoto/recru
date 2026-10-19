@@ -49,27 +49,12 @@ if (config.openai.apiKey) {
   console.log("[demo] Pas d'OPENAI_API_KEY : analyse IA factice (toujours \"uncertain\"). Ajoute la clé dans .env pour une vraie analyse.");
 }
 
-// Banc d'essai : l'utilisateur RH est choisi au démarrage (RECRUITMENT_DEMO_USER) parmi le personnel
-// de démonstration ci-dessous, pour essayer les rôles admin / recruteur / lecteur.
-// Une seule personne : à la fois administrateur et recruteur.
-const DEMO_STAFF = [
-  { email: "rrabe6402@gmail.com", role: "admin", display_name: "RH Démo (admin et recruteur)" }
-];
-const demoUser = DEMO_STAFF.find((member) => member.email === process.env.RECRUITMENT_DEMO_USER) || DEMO_STAFF[0];
-if (process.env.RECRUITMENT_DEMO_USER && demoUser.email !== process.env.RECRUITMENT_DEMO_USER) {
-  console.warn(`[demo] RECRUITMENT_DEMO_USER inconnu, utilisateur par défaut : ${demoUser.email}`);
-}
-
 // Avec SMTP_* renseignés dans le .env, la démo envoie de VRAIS e-mails ; sinon ils sont simulés dans la console.
 const mailer = createMailer(config);
 void mailer.verify();
 
 const moduleInstance = createRecruitmentModule({
   db,
-  requireAdminSession(req, res, next) {
-    req.adminUser = { id: 1, email: demoUser.email, display_name: demoUser.display_name };
-    next();
-  },
   transporter: mailer.transporter,
   aiService,
   config: {
@@ -84,12 +69,10 @@ const moduleInstance = createRecruitmentModule({
   }
 });
 
-for (const member of DEMO_STAFF) {
-  if (!moduleInstance.repository.getStaff(member.email)) {
-    moduleInstance.repository.upsertStaff({ email: member.email, role: member.role, active: true });
-  }
-}
-console.log(`[demo] Utilisateur RH : ${demoUser.email} (rôle ${demoUser.role}). Changez-en avec RECRUITMENT_DEMO_USER.`);
+// Espace RH : un seul compte, créé par la première personne qui ouvre l'espace RH (voir src/rh-auth.js).
+console.log(moduleInstance.repository.getRhAccount()
+  ? "[rh] Compte RH existant : connexion requise pour entrer dans l'espace RH."
+  : "[rh] Aucun compte RH : la première personne qui ouvre l'espace RH devra le créer.");
 
 if (moduleInstance.repository.listJobs().length === 0) {
   moduleInstance.repository.createJob({
@@ -165,7 +148,6 @@ if (moduleInstance.repository.listJobs().length === 0) {
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 app.get("/api/health", (req, res) => res.json({ ok: true, mode: "recruitment-demo" }));
-app.post("/api/admin/recrutement/auth/logout", (req, res) => res.json({ ok: true, demo: true }));
 app.use("/api/recrutement", moduleInstance.publicRouter);
 app.use("/api/admin/recrutement", moduleInstance.adminRouter);
 app.use((error, req, res, next) => {

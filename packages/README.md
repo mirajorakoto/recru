@@ -3,7 +3,7 @@
 | Package | Rôle | Commandes |
 |---|---|---|
 | `backend` | API Express + SQLite + module IA (inchangé) | `npm run dev`, `npm test` |
-| `admin-ui` | Console RH (React) : tableau de bord, offres, candidatures, pipeline, matching IA, recherche, entretiens, évaluations, rapports, alertes, équipe, journal d'audit, paramètres | `npm run build`, `npm test` |
+| `admin-ui` | Console RH (React) : tableau de bord, offres, candidatures, pipeline, matching IA, recherche, entretiens, évaluations, rapports, alertes, compte RH, journal d'audit, paramètres | `npm run build`, `npm test` |
 | `public-ui` | Site candidat : offres, candidature, **espace candidat** (`/candidat`) | `npm run build`, `npm test` |
 
 ## Montage
@@ -22,7 +22,7 @@ Le serveur doit renvoyer l'application publique pour `/candidat/*` (le lien de r
 Inscription / connexion / mot de passe oublié, tableau de bord, suivi des candidatures (frise de progression, retrait), convocations d'entretien (export `.ics`), notifications, profil, changement de mot de passe, export JSON des données et suppression du compte. Quand le candidat est connecté, le formulaire de candidature est pré-rempli et le captcha est omis (comportement déjà prévu par le backend).
 
 ## Console RH
-Navigation par `#/page` (liens directs `#/candidates/12`), palette `Ctrl+K`, thème clair/sombre, rôles admin / recruteur / lecteur appliqués à l'interface (voir `admin-ui/src/README-routes-admin.md` pour le contrat d'API).
+Navigation par `#/page` (liens directs `#/candidates/12`), palette `Ctrl+K`, thème clair/sombre, compte RH unique avec connexion obligatoire (voir `admin-ui/src/README-routes-admin.md` pour le contrat d'API).
 
 ## Circuit de recrutement simplifié (nouveau)
 1. **Réception** : le candidat postule, un email « candidature reçue » part automatiquement, le CV est analysé par l'IA (score /100 par rapport à l'offre).
@@ -54,3 +54,12 @@ Modifié : `POST /candidatures/{id}/evaluations` (notes 0–10), `POST /entretie
   - `npm run email:test -- ton-adresse@exemple.com` envoie un e-mail de test avec la config réelle.
   - Nouvelle variable `PUBLIC_BASE_URL` (obligatoire en production) pour les liens des e-mails ; `MAIL_MODE=simulation` pour couper l'envoi réel. Voir `backend/.env.example`.
   - E-mails envoyés : bienvenue (identifiant), candidature reçue (avec référence), invitation à l'entretien, réinitialisation de mot de passe, e-mail de sélection (manuel).
+
+## Compte RH unique et accès à l'espace RH (nouveau)
+- **Une seule personne** : un seul compte RH, à la fois administrateur et recruteur. Les utilisateurs et rôles (admin / recruteur / lecteur), la page « Utilisateurs et rôles », la route `/equipe` et la table `recruitment_staff` sont supprimés (la table est effacée au démarrage).
+- **Connexion obligatoire** pour entrer dans l'espace RH (`/admin/recrutement`).
+- **Premier accès** : tant qu'aucun compte RH n'existe, l'écran propose « Créer le compte RH » (nom, e-mail, mot de passe + confirmation). La première personne qui arrive le crée et entre directement. Dès qu'il existe, cette création est fermée.
+- **Nouveau compte RH** : le compte actuel doit d'abord être supprimé (page *Compte RH et candidats* → « Supprimer le compte RH »), ce qui **exige le mot de passe du compte RH actuel**. Offres, candidatures et comptes candidats sont conservés ; la première personne qui ouvre ensuite l'espace RH crée le nouveau compte.
+- **Mot de passe oublié** (écran de connexion) : on saisit l'e-mail du compte RH ; un **nouveau mot de passe est généré et envoyé automatiquement** à cette adresse par le SMTP du `.env`. Il n'est appliqué que si l'e-mail est bien parti (un SMTP en panne ne verrouille jamais le compte). Sans SMTP en développement, le mot de passe s'affiche dans la console du serveur ; en production, la réinitialisation est refusée tant que le SMTP n'est pas actif.
+- Sécurité : mot de passe haché (scrypt), session HttpOnly signée et révoquée à chaque changement de mot de passe, limitation de débit sur connexion / création / mot de passe oublié / suppression, contrôle d'origine sur les requêtes d'écriture.
+- Tests : `backend/test/rh-auth.test.js` (15 tests), `admin-ui/src/index.test.jsx`.

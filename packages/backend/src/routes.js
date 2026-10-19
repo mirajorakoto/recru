@@ -26,7 +26,6 @@ const CONTRACT_TYPES = new Set(["stage", "cdd", "cdi", "alternance", "freelance"
 const JOB_STATUSES = new Set(["draft", "published", "closed", "archived"]);
 const PROCESSING_STATUSES = new Set(["received", "queued", "processing", "analysis_ready", "analysis_failed"]);
 const DECISIONS = new Set(["to_review", "selected", "rejected", "withdrawn"]);
-const STAFF_ROLES = new Set(["admin", "recruteur", "lecteur"]);
 const INTERVIEW_MODES = new Set(["onsite", "visio", "phone"]);
 const INTERVIEW_STATUSES = new Set(["planned", "done", "cancelled"]);
 const EVALUATION_RECOMMENDATIONS = new Set(["favorable", "reserve", "defavorable"]);
@@ -833,29 +832,16 @@ function createRouters({ repository, config, encryptionKey, aiService, transport
   }));
 
   /* ==========================================================
-   * CONTRÔLE D'ACCÈS RH (CDC §7, §8, §30)
-   * lecteur = lecture seule ; recruteur = recrutement ;
-   * admin = + équipe, comptes, journal, paramètres, effacement.
+   * CONTRÔLE D'ACCÈS RH
+   * Un seul compte RH (administrateur et recruteur confondus) : plus d'équipe ni de rôles.
+   * L'authentification est faite par rh-auth.js (ou par l'hôte) avant d'arriver ici.
    * ========================================================== */
-
-  adminRouter.use((req, res, next) => {
-    const role = repository.resolveStaffRole(req.adminUser?.email);
-    if (!role) return res.status(403).json({ error: "Compte RH désactivé ou non autorisé." });
-    req.staffRole = role;
-    const isRead = req.method === "GET" || req.method === "HEAD";
-    const adminOnly = /^\/(equipe|comptes|audit)(\/|$)/.test(req.path)
-      || (!isRead && /^\/parametres(\/|$)/.test(req.path))
-      || (req.method === "DELETE" && /^\/candidatures\/[^/]+$/.test(req.path));
-    if (role === "lecteur" && !isRead) return res.status(403).json({ error: "Rôle lecteur : lecture seule." });
-    if (adminOnly && role !== "admin") return res.status(403).json({ error: "Action réservée aux administrateurs." });
-    next();
-  });
 
   adminRouter.get("/moi", (req, res) => {
     res.json({
       email: req.adminUser?.email || null,
-      display_name: req.adminUser?.display_name || req.adminUser?.email || "Admin RH",
-      role: req.staffRole
+      display_name: req.adminUser?.display_name || req.adminUser?.email || "Responsable RH",
+      role: "rh"
     });
   });
 
@@ -1559,34 +1545,6 @@ function createRouters({ repository, config, encryptionKey, aiService, transport
       cursor = slot + step;
     }
     res.status(201).json({ created, skipped });
-  });
-
-  /* ==========================================================
-   * ÉQUIPE / STAFF (CDC §7.1 et §8)
-   * ========================================================== */
-
-  adminRouter.get("/equipe", (req, res) => {
-    res.json({ membres: repository.listStaff() });
-  });
-
-  adminRouter.post("/equipe", (req, res) => {
-    try {
-      const email = normalizeOptionalEmail(req.body.email, "Email");
-      if (!email) throw new Error("L'email est requis.");
-      const role = req.body.role || "recruteur";
-      if (!STAFF_ROLES.has(role)) throw new Error("Rôle invalide.");
-      const active = req.body.active !== false;
-      const current = repository.getStaff(email);
-      const demotesLastAdmin = current && current.role === "admin" && current.active && (role !== "admin" || !active);
-      if (demotesLastAdmin && repository.countActiveAdmins() <= 1) {
-        return res.status(409).json({ error: "Impossible de retirer le dernier administrateur actif." });
-      }
-      const membre = repository.upsertStaff({ email, role, active });
-      repository.recordEvent(null, "staff_upserted", adminActor(req), { email, role, active });
-      res.status(201).json({ membre });
-    } catch (error) {
-      res.status(400).json({ error: clientError(error) });
-    }
   });
 
   /* ==========================================================

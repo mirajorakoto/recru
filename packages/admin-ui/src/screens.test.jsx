@@ -6,7 +6,7 @@ const job = { id: 1, title: "Dev", slug: "dev", status: "published", contract_ty
 const detail = { candidature: { ...cand, phone: "0", analysis: { summary: "ok", recommendation: "match", score: { total: 82, components: [{ category: "competence", points: 30, max: 40 }] }, criteria: [{ criterion: "Java", assessment: "supported", evidence: "x", category: "competence", required: true, source: "cv" }], profile: { skills: ["java"] } }, notes: [] }, fichiers: [] };
 function mock(url) {
   const u = String(url).replace("/api/admin/recrutement", "");
-  if (u === "/moi") return { email: "a@b.c", display_name: "Admin", role: "admin" };
+  if (u === "/moi") return { email: "a@b.c", display_name: "Admin", role: "rh" };
   if (u === "/offres") return { offres: [job] };
   if (u.startsWith("/candidatures/recherche")) return { total: 1, rows: [cand] };
   if (u.startsWith("/candidatures?")) return { candidatures: [cand], pagination: {} };
@@ -15,13 +15,12 @@ function mock(url) {
   if (u.includes("/evaluations")) return { evaluations: [] };
   if (u.startsWith("/entretiens")) return { entretiens: [] };
   if (u === "/tableau-de-bord") return { totals: {}, alertes: {}, candidatures_par_statut: {}, candidatures_par_mois: [{ mois: "2026-09", n: 3 }], candidatures_par_offre: [], competences_frequentes: [] };
-  if (u === "/equipe") return { membres: [{ email: "a@b.c", role: "admin", active: 1 }] };
   if (u.startsWith("/comptes")) return { comptes: [] };
   if (u.startsWith("/audit")) return { events: [{ id: 1, event_type: "job_created", actor: "a", created_at: "2026-10-01 08:00:00" }], next_before_id: null };
   if (u.startsWith("/parametres")) return { parametres: { criteria: {}, options: {} } };
   return {};
 }
-for (const page of ["dashboard", "offers", "candidates", "pipeline", "matching", "search", "interviews", "reports", "alerts", "team", "journal", "settings", "candidates/1"]) {
+for (const page of ["dashboard", "offers", "candidates", "pipeline", "matching", "search", "interviews", "reports", "alerts", "account", "journal", "settings", "candidates/1"]) {
   test(`renders ${page}`, async () => {
     window.location.hash = `#/${page}`;
     vi.stubGlobal("fetch", vi.fn(async (url) => ({ ok: true, status: 200, json: async () => mock(url) })));

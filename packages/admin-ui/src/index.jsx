@@ -8,14 +8,14 @@ import { CandidateDrawer, CandidatesPage, NewApplicationDrawer } from "./Candida
 import { PipelinePage, RankingPage } from "./Pipeline";
 import { SearchPage } from "./Search";
 import { InterviewsPage } from "./Interviews";
-import { AlertsPage, JournalPage, ReportsPage, SettingsPage, TeamPage } from "./Admin";
+import { AccountPage, AlertsPage, JournalPage, ReportsPage, SettingsPage } from "./Admin";
 
 export { PIPELINE_STATUSES, RichEditor, ScorePanel };
 
 const NAV = [
   ["Pilotage", [["dashboard", "Tableau de bord", "dashboard"], ["reports", "Rapports", "reports"], ["alerts", "Alertes", "bell"]]],
   ["Recrutement", [["offers", "Offres", "offers"], ["candidates", "Candidatures", "candidates"], ["pipeline", "Pipeline", "pipeline"], ["matching", "Classement", "matching"], ["search", "Recherche", "search"], ["interviews", "Entretiens", "interviews"]]],
-  ["Administration", [["team", "Utilisateurs et rôles", "team", "admin"], ["journal", "Journal d'audit", "journal", "admin"], ["settings", "Paramètres", "settings"]]]
+  ["Administration", [["account", "Compte RH et candidats", "team"], ["journal", "Journal d'audit", "journal"], ["settings", "Paramètres", "settings"]]]
 ];
 const PAGES = NAV.flatMap(([, items]) => items);
 
@@ -30,31 +30,72 @@ function useTheme() {
   return [theme, setTheme];
 }
 
-function LoginScreen({ api, onDone }) {
-  const [form, setForm] = useState({ email: "", password: "" });
+/* Accès à l'espace RH : un SEUL compte (administrateur + recruteur).
+   - aucun compte  -> création du compte RH par la première personne qui arrive (mode « setup ») ;
+   - compte existant -> connexion (mode « login »), avec « Mot de passe oublié » (mode « forgot »). */
+function AuthScreen({ api, initialMode, onDone }) {
+  const [mode, setMode] = useState(initialMode);
+  const [form, setForm] = useState({ display_name: "", email: "", password: "", confirm: "" });
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+  useEffect(() => { setMode(initialMode); }, [initialMode]);
+  const set = (name) => (event) => setForm((current) => ({ ...current, [name]: event.target.value }));
+  const go = (next) => { setMode(next); setError(""); };
+
   async function submit(event) {
-    event.preventDefault(); setPending(true); setError("");
-    try { await apiRequest(api, "/auth/login", { method: "POST", body: json(form) }); onDone(); }
-    catch (caught) { setError(friendlyError(caught)); } finally { setPending(false); }
+    event.preventDefault(); setError(""); setNotice("");
+    if (mode === "setup" && form.password !== form.confirm) { setError("Les deux mots de passe ne sont pas identiques."); return; }
+    setPending(true);
+    try {
+      if (mode === "setup") {
+        await apiRequest(api, "/auth/setup", { method: "POST", body: json({ display_name: form.display_name, email: form.email, password: form.password }) });
+        onDone();
+      } else if (mode === "forgot") {
+        await apiRequest(api, "/auth/forgot-password", { method: "POST", body: json({ email: form.email }) });
+        setNotice("Si cette adresse est celle du compte RH, un nouveau mot de passe vient de lui être envoyé par e-mail. Connectez-vous avec, puis changez-le.");
+        setForm((current) => ({ ...current, password: "", confirm: "" }));
+        setMode("login");
+      } else {
+        await apiRequest(api, "/auth/login", { method: "POST", body: json({ email: form.email, password: form.password }) });
+        onDone();
+      }
+    } catch (caught) {
+      if (caught.code === "setup_required") go("setup");
+      else if (caught.code === "account_exists") go("login");
+      setError(friendlyError(caught));
+    } finally { setPending(false); }
   }
+
+  const titles = { setup: "Créer le compte RH", login: "Accès RH", forgot: "Mot de passe oublié" };
+  const intros = {
+    setup: "Premier accès à l'espace RH : créez le compte RH. Ce sera le seul compte (administrateur et recruteur à la fois).",
+    login: "Connectez-vous avec le compte RH pour gérer le recrutement.",
+    forgot: "Saisissez l'e-mail du compte RH : un nouveau mot de passe y sera envoyé automatiquement."
+  };
   return <main className="rh-login"><form className="rh-login-card" onSubmit={submit}>
     <span className="rh-logo is-big"><Icon name="matching" size={22} /></span>
-    <h1>Accès RH</h1><p>Connectez-vous avec votre compte administrateur pour gérer le recrutement.</p>
-    <Field label="Email"><input autoComplete="username" onChange={(e) => setForm({ ...form, email: e.target.value })} required type="email" value={form.email} /></Field>
-    <Field label="Mot de passe"><input autoComplete="current-password" onChange={(e) => setForm({ ...form, password: e.target.value })} required type="password" value={form.password} /></Field>
+    <h1>{titles[mode]}</h1><p>{intros[mode]}</p>
+    {mode === "setup" ? <Field label="Nom affiché"><input autoComplete="name" maxLength={120} onChange={set("display_name")} placeholder="Ex. : Responsable RH" value={form.display_name} /></Field> : null}
+    <Field label="Email"><input autoComplete="username" onChange={set("email")} required type="email" value={form.email} /></Field>
+    {mode !== "forgot" ? <Field hint={mode === "setup" ? "10 caractères minimum, avec au moins une lettre et un chiffre." : undefined} label="Mot de passe"><input autoComplete={mode === "setup" ? "new-password" : "current-password"} minLength={mode === "setup" ? 10 : undefined} onChange={set("password")} required type="password" value={form.password} /></Field> : null}
+    {mode === "setup" ? <Field label="Confirmer le mot de passe"><input autoComplete="new-password" onChange={set("confirm")} required type="password" value={form.confirm} /></Field> : null}
+    {notice ? <p className="rh-notice" role="status">{notice}</p> : null}
     <ErrorNote>{error}</ErrorNote>
-    <button className="rh-btn is-primary is-block" disabled={pending} type="submit">{pending ? "Connexion…" : "Se connecter"}</button>
+    <button className="rh-btn is-primary is-block" disabled={pending} type="submit">
+      {mode === "setup" ? (pending ? "Création…" : "Créer le compte RH") : mode === "forgot" ? (pending ? "Envoi…" : "Envoyer un nouveau mot de passe") : (pending ? "Connexion…" : "Se connecter")}
+    </button>
+    {mode === "login" ? <button className="rh-link rh-login-link" onClick={() => go("forgot")} type="button">Mot de passe oublié ?</button> : null}
+    {mode === "forgot" ? <button className="rh-link rh-login-link" onClick={() => go("login")} type="button">Retour à la connexion</button> : null}
   </form></main>;
 }
 
-function CommandPalette({ candidates, role, onClose, onPage, onCandidate }) {
+function CommandPalette({ candidates, onClose, onPage, onCandidate }) {
   const [q, setQ] = useState("");
   const ref = useRef(null);
   useEffect(() => { ref.current?.focus(); const key = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [onClose]);
   const needle = q.trim().toLowerCase();
-  const pages = PAGES.filter(([, label, , need]) => (!need || role === "admin") && (!needle || label.toLowerCase().includes(needle)));
+  const pages = PAGES.filter(([, label]) => !needle || label.toLowerCase().includes(needle));
   const people = needle ? candidates.filter((c) => `${c.full_name} ${c.email} ${c.job_title} ${c.reference || ""}`.toLowerCase().includes(needle)).slice(0, 6) : [];
   const first = () => (people[0] ? onCandidate(people[0].id) : pages[0] ? onPage(pages[0][0]) : null);
   return <div className="rh-scrim is-top" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -92,12 +133,12 @@ export function RecruitmentAdminPanel({ apiBaseUrl = "/api/admin/recrutement" })
       const [profile, jobs, list] = await Promise.all([apiRequest(api, "/moi"), apiRequest(api, "/offres"), apiRequest(api, `/candidatures?${query}`)]);
       setMe(profile); setOffers(jobs.offres || []); setCandidates(list.candidatures || []); setNextCursor(list.pagination?.next_cursor || null); setAuth("ready"); setBoot("");
     } catch (error) {
-      if (error.status === 401) setAuth("login");
+      if (error.status === 401) setAuth(error.code === "setup_required" ? "setup" : "login");
       else { setBoot(friendlyError(error)); setAuth((current) => (current === "ready" ? current : "error")); }
     }
   }, [api, query]);
   useEffect(() => { loadCore(); }, [loadCore, tick]);
-  useEffect(() => { const on = () => setAuth("login"); window.addEventListener("rh:unauthorized", on); return () => window.removeEventListener("rh:unauthorized", on); }, []);
+  useEffect(() => { const on = () => setAuth((current) => (current === "ready" ? "login" : current)); window.addEventListener("rh:unauthorized", on); return () => window.removeEventListener("rh:unauthorized", on); }, []);
 
   async function loadMore() {
     try { const list = await apiRequest(api, `/candidatures?${query}&cursor=${encodeURIComponent(nextCursor)}`); setCandidates((c) => [...c, ...(list.candidatures || [])]); setNextCursor(list.pagination?.next_cursor || null); }
@@ -108,7 +149,7 @@ export function RecruitmentAdminPanel({ apiBaseUrl = "/api/admin/recrutement" })
   useEffect(() => { const on = () => { const next = readHash(); setRoute(next); if (next.id) setOpenCand((c) => (c?.id === next.id ? c : { id: next.id, tab: "analysis" })); }; window.addEventListener("hashchange", on); return () => window.removeEventListener("hashchange", on); }, []);
   useEffect(() => { const key = (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((v) => !v); } }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, []);
 
-  const role = me?.role || "lecteur";
+  const role = me?.role || "rh";
   const perms = permissions(role);
   const refreshCore = useCallback(() => setTick((t) => t + 1), []);
   const openCandidate = useCallback((id, tab = "analysis") => { setPalette(false); setOpenCand({ id, tab }); }, []);
@@ -120,11 +161,10 @@ export function RecruitmentAdminPanel({ apiBaseUrl = "/api/admin/recrutement" })
   }
 
   if (auth === "loading") return <div className="rh-root" data-theme={theme}><Loading label="Connexion au module RH…" /></div>;
-  if (auth === "login") return <div className="rh-root" data-theme={theme}><LoginScreen api={api} onDone={() => { setAuth("loading"); refreshCore(); }} /></div>;
+  if (auth === "login" || auth === "setup") return <div className="rh-root" data-theme={theme}><AuthScreen api={api} initialMode={auth} onDone={() => { setAuth("loading"); refreshCore(); }} /></div>;
   if (auth === "error") return <div className="rh-root" data-theme={theme}><div className="rh-page"><ErrorNote>{boot}</ErrorNote><button className="rh-btn" onClick={refreshCore} type="button">Réessayer</button></div></div>;
 
   const page = route.page;
-  const visible = (item) => !item[3] || role === "admin";
   const current = PAGES.find(([key]) => key === page);
   const failed = candidates.filter((c) => c.processing_status === "analysis_failed").length;
   const closeCandidate = () => { setOpenCand(null); if (route.id) navigate(page); };
@@ -134,7 +174,7 @@ export function RecruitmentAdminPanel({ apiBaseUrl = "/api/admin/recrutement" })
       <a className="rh-skip" href="#rh-main">Aller au contenu</a>
       <aside aria-label="Navigation principale" className="rh-side">
         <div className="rh-brand"><span className="rh-logo"><Icon name="matching" size={18} /></span><div><strong>TechZone RH</strong><small>Recrutement assisté par IA</small></div></div>
-        <nav>{NAV.map(([group, items]) => { const shown = items.filter(visible); return shown.length ? <div className="rh-navgroup" key={group}><h2>{group}</h2>{shown.map(([key, label, icon]) => <a aria-current={page === key ? "page" : undefined} className={page === key ? "is-active" : ""} href={`#/${key}`} key={key} onClick={() => setMenu(false)}><Icon name={icon} size={18} />{label}{key === "alerts" && failed ? <b>{failed}</b> : null}</a>)}</div> : null; })}</nav>
+        <nav>{NAV.map(([group, items]) => { return <div className="rh-navgroup" key={group}><h2>{group}</h2>{items.map(([key, label, icon]) => <a aria-current={page === key ? "page" : undefined} className={page === key ? "is-active" : ""} href={`#/${key}`} key={key} onClick={() => setMenu(false)}><Icon name={icon} size={18} />{label}{key === "alerts" && failed ? <b>{failed}</b> : null}</a>)}</div>; })}</nav>
         <div className="rh-me"><Avatar name={me?.display_name || me?.email} size={34} /><div><strong>{me?.display_name}</strong><small>{ROLE_LABELS[role] || role}</small></div><button aria-label="Se déconnecter" className="rh-icon-btn is-on-dark" onClick={logout} title="Se déconnecter" type="button"><Icon name="logout" size={18} /></button></div>
       </aside>
       {menu ? <button aria-label="Fermer le menu" className="rh-menu-scrim" onClick={() => setMenu(false)} type="button" /> : null}
@@ -158,14 +198,14 @@ export function RecruitmentAdminPanel({ apiBaseUrl = "/api/admin/recrutement" })
           {page === "interviews" ? <InterviewsPage canWrite={perms.write} candidates={candidates} openCandidate={openCandidate} /> : null}
           {page === "reports" ? <ReportsPage candidates={candidates} navigate={navigate} /> : null}
           {page === "alerts" ? <AlertsPage isAdmin={perms.admin} navigate={navigate} openCandidate={openCandidate} /> : null}
-          {page === "team" ? (perms.admin ? <TeamPage /> : <div className="rh-page"><ErrorNote>Réservé aux administrateurs.</ErrorNote></div>) : null}
-          {page === "journal" ? (perms.admin ? <JournalPage openCandidate={openCandidate} /> : <div className="rh-page"><ErrorNote>Réservé aux administrateurs.</ErrorNote></div>) : null}
+          {page === "account" ? <AccountPage /> : null}
+          {page === "journal" ? <JournalPage openCandidate={openCandidate} /> : null}
           {page === "settings" ? <SettingsPage setTheme={setTheme} theme={theme} /> : null}
         </main>
       </div>
       {openCand ? <CandidateDrawer id={openCand.id} initialTab={openCand.tab} onClose={closeCandidate} /> : null}
       {showNew ? <NewApplicationDrawer offers={offers} onClose={() => setShowNew(false)} onCreated={(id) => { setShowNew(false); refreshCore(); if (id) openCandidate(id); }} /> : null}
-      {palette ? <CommandPalette candidates={candidates} onClose={() => setPalette(false)} onCandidate={openCandidate} onPage={navigate} role={role} /> : null}
+      {palette ? <CommandPalette candidates={candidates} onClose={() => setPalette(false)} onCandidate={openCandidate} onPage={navigate} /> : null}
       {overlays.host}
     </div>
   </AppContext.Provider>;

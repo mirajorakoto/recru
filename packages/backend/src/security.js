@@ -281,9 +281,28 @@ function sha256Hex(value) {
   return crypto.createHash("sha256").update(String(value)).digest("hex");
 }
 
+/**
+ * Mot de passe aléatoire lisible (sans caractères ambigus 0/O, 1/l/I), 14 caractères,
+ * avec au moins une lettre et un chiffre : il respecte toujours validatePasswordStrength().
+ */
+function generatePassword(length = 14) {
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const all = letters + digits;
+  const pick = (alphabet) => alphabet[crypto.randomInt(alphabet.length)];
+  const chars = [pick(letters), pick(digits)];
+  while (chars.length < length) chars.push(pick(all));
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
 module.exports = {
   burnPasswordCheck,
   deriveSubKey,
+  generatePassword,
   hashPassword,
   randomToken,
   sha256Hex,

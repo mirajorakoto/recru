@@ -1,27 +1,74 @@
 import { useEffect, useState } from "react";
-import { apiRequest, CATEGORY_LABELS, CATEGORY_WEIGHTS, dateTime, downloadCsv, eventDetail, EVENT_LABELS, EVENT_TONES, friendlyError, JOB_NEXT_LABELS, json, PIPELINE_LABELS, PIPELINE_STATUSES, plural, parseDbDate, relativeDay, ROLE_LABELS, STAFF_ROLES } from "./lib";
+import { apiRequest, CATEGORY_LABELS, CATEGORY_WEIGHTS, dateTime, downloadCsv, eventDetail, EVENT_LABELS, EVENT_TONES, friendlyError, JOB_NEXT_LABELS, json, PIPELINE_LABELS, PIPELINE_STATUSES, plural, parseDbDate, relativeDay } from "./lib";
 import { Avatar, Badge, BarChart, Donut, Empty, ErrorNote, Field, HBars, Icon, Loading, PageHeader, Panel, Tabs, Toggle, useApi, useApp } from "./ui";
 import { Kpi } from "./Dashboard";
 
-/* ---------------------------------------------------------- équipe & comptes */
-export function TeamPage() {
-  const { api, me, confirm, toast } = useApp();
-  const [tab, setTab] = useState("staff");
+/* ------------------------------------------------- compte RH & comptes candidats */
+const PASSWORD_HINT = "10 caractères minimum, avec au moins une lettre et un chiffre.";
+
+function RhAccountTab() {
+  const { api, me, confirm, toast, refreshCore } = useApp();
+  const [pwd, setPwd] = useState({ current: "", next: "", confirm: "" });
+  const [removePassword, setRemovePassword] = useState("");
+  const [pending, setPending] = useState("");
+
+  async function changePassword(event) {
+    event.preventDefault();
+    if (pwd.next !== pwd.confirm) { toast("Les deux nouveaux mots de passe ne sont pas identiques.", "error"); return; }
+    setPending("password");
+    try {
+      await apiRequest(api, "/auth/password", { method: "POST", body: json({ current_password: pwd.current, new_password: pwd.next }) });
+      setPwd({ current: "", next: "", confirm: "" });
+      toast("Mot de passe modifié.", "success");
+    } catch (caught) { toast(friendlyError(caught), "error"); } finally { setPending(""); }
+  }
+
+  async function removeAccount(event) {
+    event.preventDefault();
+    if (!(await confirm({
+      title: "Supprimer le compte RH ?",
+      message: `${me?.email} sera supprimé. Offres et candidatures sont conservées, mais il faudra créer un nouveau compte RH pour entrer dans l'espace RH.`,
+      confirmLabel: "Supprimer le compte RH",
+      tone: "danger"
+    }))) return;
+    setPending("delete");
+    try {
+      await apiRequest(api, "/auth/account", { method: "DELETE", body: json({ password: removePassword }) });
+      setRemovePassword("");
+      refreshCore(); // /moi répond « setup_required » : l'écran de création du compte RH s'affiche
+    } catch (caught) { toast(friendlyError(caught), "error"); } finally { setPending(""); }
+  }
+
+  return <div className="rh-stack">
+    <Panel subtitle="C'est le seul compte de l'espace RH : administrateur et recruteur à la fois." title="Compte RH">
+      <div className="rh-person"><Avatar name={me?.display_name || me?.email} /><div><strong>{me?.display_name}</strong><small>{me?.email}</small></div></div>
+      <p className="rh-fineprint">En cas d'oubli, « Mot de passe oublié ? » sur l'écran de connexion envoie automatiquement un nouveau mot de passe à cette adresse.</p>
+    </Panel>
+    <Panel subtitle="Les autres sessions ouvertes seront déconnectées." title="Changer le mot de passe">
+      <form className="rh-form" onSubmit={changePassword}>
+        <Field label="Mot de passe actuel"><input autoComplete="current-password" onChange={(e) => setPwd({ ...pwd, current: e.target.value })} required type="password" value={pwd.current} /></Field>
+        <Field hint={PASSWORD_HINT} label="Nouveau mot de passe"><input autoComplete="new-password" minLength={10} onChange={(e) => setPwd({ ...pwd, next: e.target.value })} required type="password" value={pwd.next} /></Field>
+        <Field label="Confirmer le nouveau mot de passe"><input autoComplete="new-password" onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })} required type="password" value={pwd.confirm} /></Field>
+        <div className="rh-actions"><button className="rh-btn is-primary" disabled={pending === "password"} type="submit">{pending === "password" ? "Enregistrement…" : "Changer le mot de passe"}</button></div>
+      </form>
+    </Panel>
+    <Panel subtitle="Nécessaire pour créer un nouveau compte RH : un seul compte peut exister à la fois." title="Supprimer le compte RH">
+      <form className="rh-form" onSubmit={removeAccount}>
+        <p>Après la suppression, la première personne qui ouvre l'espace RH crée le nouveau compte. Les offres, candidatures et comptes candidats ne sont pas touchés.</p>
+        <Field hint="Saisissez le mot de passe du compte RH actuel pour confirmer." label="Mot de passe du compte RH actuel"><input autoComplete="current-password" onChange={(e) => setRemovePassword(e.target.value)} required type="password" value={removePassword} /></Field>
+        <div className="rh-actions"><button className="rh-btn is-danger" disabled={pending === "delete" || !removePassword} type="submit"><Icon name="trash" size={16} />{pending === "delete" ? "Suppression…" : "Supprimer le compte RH"}</button></div>
+      </form>
+    </Panel>
+  </div>;
+}
+
+export function AccountPage() {
+  const { api, confirm, toast } = useApp();
+  const [tab, setTab] = useState("rh");
   const [version, setVersion] = useState(0);
-  const [form, setForm] = useState({ email: "", role: "recruteur" });
   const [search, setSearch] = useState("");
-  const staff = useApi("/equipe", version);
   const accounts = useApi(tab === "accounts" ? "/comptes?limit=200" : null, version);
   const reload = () => setVersion((v) => v + 1);
-  async function save(member, patch) {
-    try { await apiRequest(api, "/equipe", { method: "POST", body: json({ email: member.email, role: member.role, active: Boolean(member.active), ...patch }) }); toast("Équipe mise à jour.", "success"); reload(); }
-    catch (caught) { toast(friendlyError(caught), "error"); }
-  }
-  async function add(event) {
-    event.preventDefault();
-    try { await apiRequest(api, "/equipe", { method: "POST", body: json({ ...form, active: true }) }); setForm({ email: "", role: "recruteur" }); toast("Membre ajouté.", "success"); reload(); }
-    catch (caught) { toast(friendlyError(caught), "error"); }
-  }
   async function toggleAccount(account) {
     const next = account.active ? "desactiver" : "activer";
     if (!(await confirm({ title: `${account.active ? "Désactiver" : "Réactiver"} ce compte ?`, message: account.email, confirmLabel: account.active ? "Désactiver" : "Réactiver", tone: account.active ? "danger" : "primary" }))) return;
@@ -33,22 +80,11 @@ export function TeamPage() {
     try { await apiRequest(api, `/comptes/${account.id}`, { method: "DELETE" }); toast("Compte effacé.", "success"); reload(); }
     catch (caught) { toast(friendlyError(caught), "error"); }
   }
-  const members = staff.data?.membres || [];
   const accs = (accounts.data?.comptes || []).filter((a) => !search || `${a.email} ${a.full_name}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="rh-page">
-    <PageHeader subtitle="Gérez les rôles du personnel RH et les comptes candidats." title="Utilisateurs et rôles" />
-    <Tabs label="Utilisateurs" onChange={setTab} tabs={[["staff", "Équipe RH", members.length], ["accounts", "Comptes candidats"], ["roles", "Rôles et permissions"]]} value={tab} />
-    {tab === "staff" ? <>
-      <Panel subtitle="Un membre se connecte via le portail administrateur existant ; son rôle est défini ici." title="Ajouter un membre">
-        <form className="rh-inline-form" onSubmit={add}><input aria-label="Email du membre" onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="prenom.nom@entreprise.com" required type="email" value={form.email} /><select aria-label="Rôle" onChange={(e) => setForm({ ...form, role: e.target.value })} value={form.role}>{STAFF_ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select><button className="rh-btn is-primary" type="submit"><Icon name="plus" size={16} />Ajouter</button></form>
-      </Panel>
-      <ErrorNote>{staff.error}</ErrorNote>
-      <div className="rh-table-wrap"><table className="rh-table is-static"><thead><tr><th>Membre</th><th>Rôle</th><th>Actif</th></tr></thead><tbody>{members.map((m) => <tr key={m.email}>
-        <td><div className="rh-person"><Avatar name={m.email} /><div><strong>{m.email}</strong>{m.email === me?.email ? <small>Vous</small> : null}</div></div></td>
-        <td><select aria-label={`Rôle de ${m.email}`} onChange={(e) => save(m, { role: e.target.value })} value={m.role}>{STAFF_ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></td>
-        <td><Toggle checked={Boolean(m.active)} label={m.active ? "Actif" : "Désactivé"} onChange={(v) => save(m, { active: v })} /></td></tr>)}</tbody></table>
-        {!staff.loading && !members.length ? <Empty icon="team" title="Aucun membre">Ajoutez le premier membre de l'équipe RH.</Empty> : null}</div>
-    </> : null}
+    <PageHeader subtitle="Le compte RH unique et les comptes des candidats." title="Compte RH et candidats" />
+    <Tabs label="Comptes" onChange={setTab} tabs={[["rh", "Compte RH"], ["accounts", "Comptes candidats"]]} value={tab} />
+    {tab === "rh" ? <RhAccountTab /> : null}
     {tab === "accounts" ? <>
       <div className="rh-toolbar"><label className="rh-searchbox"><Icon name="search" size={16} /><input aria-label="Rechercher un compte" onChange={(e) => setSearch(e.target.value)} placeholder="Nom ou email" value={search} /></label></div>
       <ErrorNote>{accounts.error}</ErrorNote>{accounts.loading ? <Loading /> : null}
@@ -58,9 +94,6 @@ export function TeamPage() {
         <td><div className="rh-rowactions"><button className="rh-btn is-sm" onClick={() => toggleAccount(a)} type="button">{a.active ? "Désactiver" : "Réactiver"}</button><button aria-label={`Effacer ${a.email}`} className="rh-icon-btn is-danger" onClick={() => eraseAccount(a)} type="button"><Icon name="trash" size={16} /></button></div></td></tr>)}</tbody></table>
         {!accounts.loading && !accs.length ? <Empty icon="candidates" title="Aucun compte candidat" /> : null}</div>
     </> : null}
-    {tab === "roles" ? <div className="rh-grid-3">
-      {[["Administrateur", "admin", ["Gérer l'équipe et les comptes", "Modifier les paramètres IA", "Consulter le journal d'audit", "Effacer des données (droit à l'effacement)", "Tous les droits du recruteur"]], ["Recruteur / RH", "recruteur", ["Créer et publier des offres", "Consulter CV et analyses IA", "Planifier et évaluer les entretiens", "Changer étapes et décisions", "Envoyer les emails de sélection"]], ["Lecteur", "lecteur", ["Consulter offres et candidatures", "Voir tableaux de bord et agenda", "Aucune modification possible"]]].map(([title, key, items]) => <Panel key={key} subtitle={key === me?.role ? "Votre rôle actuel" : undefined} title={title}><ul className="rh-ticks">{items.map((i) => <li key={i}><Icon name="check" size={14} />{i}</li>)}</ul></Panel>)}
-    </div> : null}
   </div>;
 }
 
@@ -76,7 +109,7 @@ export function JournalPage({ openCandidate }) {
   const events = data?.events || [];
   const set = (name, value) => { setBefore([]); setFilters((c) => ({ ...c, [name]: value })); };
   return <div className="rh-page">
-    <PageHeader actions={<button className="rh-btn" disabled={!events.length} onClick={() => downloadCsv("journal-audit.csv", ["Date", "Événement", "Acteur", "Candidature", "Détail"], events.map((e) => [e.created_at, EVENT_LABELS[e.event_type] || e.event_type, e.actor, e.application_id || "", eventDetail(e)]))} type="button"><Icon name="download" size={16} />Exporter la page</button>} subtitle="Traçabilité des accès sensibles, décisions et modifications (réservé aux administrateurs)." title="Journal d'audit" />
+    <PageHeader actions={<button className="rh-btn" disabled={!events.length} onClick={() => downloadCsv("journal-audit.csv", ["Date", "Événement", "Acteur", "Candidature", "Détail"], events.map((e) => [e.created_at, EVENT_LABELS[e.event_type] || e.event_type, e.actor, e.application_id || "", eventDetail(e)]))} type="button"><Icon name="download" size={16} />Exporter la page</button>} subtitle="Traçabilité des accès sensibles, décisions et modifications (réservé au compte RH)." title="Journal d'audit" />
     <div className="rh-toolbar">
       <select aria-label="Type d'événement" onChange={(e) => set("event_type", e.target.value)} value={filters.event_type}><option value="">Tous les événements</option>{Object.entries(EVENT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
       <input aria-label="Acteur" onChange={(e) => set("actor", e.target.value)} placeholder="Acteur (email)" value={filters.actor} />
@@ -120,7 +153,7 @@ export function SettingsPage({ theme, setTheme }) {
         <Toggle checked={draft.options.hideIrrelevant} hint="Ne retient que les informations utiles au poste." label="Masquer les informations hors sujet" onChange={(v) => setDraft({ ...draft, options: { ...draft.options, hideIrrelevant: v } })} />
       </Panel>
       <div className="rh-actions"><button className="rh-btn is-primary" disabled={pending} type="submit">{pending ? "Enregistrement…" : "Enregistrer"}</button></div>
-    </form>) : <Empty icon="shield" title="Réservé aux administrateurs">Seul un administrateur peut modifier les consignes d'analyse IA.</Empty>) : null}
+    </form>) : <Empty icon="shield" title="Accès indisponible">Les consignes d'analyse IA ne sont pas modifiables pour le moment.</Empty>) : null}
     {tab === "score" ? <div className="rh-stack">
       <Panel subtitle="Pondérations du prototype : elles ne mesurent pas la valeur d'un candidat." title="Formule du score explicable">
         <HBars format={(v) => `${v} pts`} rows={Object.entries(CATEGORY_WEIGHTS).map(([k, v]) => ({ label: CATEGORY_LABELS[k], value: v }))} tone="indigo" />
@@ -130,7 +163,7 @@ export function SettingsPage({ theme, setTheme }) {
       <Panel title="Cycle de vie d'une offre"><p>Brouillon → {JOB_NEXT_LABELS.published} → {JOB_NEXT_LABELS.closed} → {JOB_NEXT_LABELS.archived}. Une offre publiée exige au moins un critère et une date limite future.</p></Panel>
     </div> : null}
     {tab === "data" ? <div className="rh-grid-3">
-      {[["CV chiffrés", "Les documents sont stockés chiffrés (AES-256-GCM), avec empreinte d'intégrité."], ["Accès journalisés", "Consultations de dossiers, téléchargements et décisions sont tracés dans le journal d'audit."], ["Conservation limitée", "Les dossiers des offres clôturées sont purgés automatiquement après la durée de rétention configurée."], ["Droit à l'effacement", "Un administrateur peut effacer un candidat ou un compte depuis sa fiche."], ["Décision humaine", "L'IA fournit des indications explicables ; aucune décision n'est automatique."], ["Données minimales", "Seules les informations nécessaires au recrutement sont collectées."]].map(([t, d]) => <Panel key={t} title={t}><p>{d}</p></Panel>)}
+      {[["CV chiffrés", "Les documents sont stockés chiffrés (AES-256-GCM), avec empreinte d'intégrité."], ["Accès journalisés", "Consultations de dossiers, téléchargements et décisions sont tracés dans le journal d'audit."], ["Conservation limitée", "Les dossiers des offres clôturées sont purgés automatiquement après la durée de rétention configurée."], ["Droit à l'effacement", "Le responsable RH peut effacer un candidat ou un compte depuis sa fiche."], ["Décision humaine", "L'IA fournit des indications explicables ; aucune décision n'est automatique."], ["Données minimales", "Seules les informations nécessaires au recrutement sont collectées."]].map(([t, d]) => <Panel key={t} title={t}><p>{d}</p></Panel>)}
     </div> : null}
     {tab === "display" ? <Panel title="Thème"><div className="rh-segment" role="radiogroup" aria-label="Thème">{[["system", "Système"], ["light", "Clair"], ["dark", "Sombre"]].map(([v, l]) => <button aria-checked={theme === v} className={theme === v ? "is-on" : ""} key={v} onClick={() => setTheme(v)} role="radio" type="button">{l}</button>)}</div></Panel> : null}
   </div>;

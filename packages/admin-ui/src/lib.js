@@ -11,6 +11,7 @@ export async function apiRequest(apiBaseUrl, path, options = {}) {
   if (!response.ok) {
     const error = new Error(payload.error || `Erreur HTTP ${response.status}`);
     error.status = response.status;
+    error.code = payload.code;
     if (response.status === 401 && typeof window !== "undefined") window.dispatchEvent(new Event("rh:unauthorized"));
     throw error;
   }
@@ -53,8 +54,8 @@ export const EDUCATION_OPTIONS = [["", "Tous niveaux"], ["bac", "Bac"], ["bac+2"
 export const INTERVIEW_STATUS_LABELS = { planned: "Planifié", done: "Réalisé", cancelled: "Annulé" };
 export const INTERVIEW_STATUS_TONES = { planned: "blue", done: "green", cancelled: "slate" };
 export const INTERVIEW_MODES = [["onsite", "Sur site"], ["visio", "Visioconférence"], ["phone", "Téléphone"]];
-export const STAFF_ROLES = [["admin", "Administrateur"], ["recruteur", "Recruteur / RH"], ["lecteur", "Lecteur"]];
-export const ROLE_LABELS = Object.fromEntries(STAFF_ROLES);
+// Un seul compte RH : administrateur et recruteur confondus (plus d'équipe ni de rôles).
+export const ROLE_LABELS = { rh: "Responsable RH" };
 export const EVALUATION_CRITERIA = [["technical", "Compétences techniques"], ["communication", "Communication"], ["motivation", "Motivation"], ["experience", "Expérience"], ["adaptability", "Adaptabilité"]];
 export const EVAL_RECO = { favorable: "Favorable", reserve: "Réservé", defavorable: "Défavorable" };
 export const EVAL_RECO_TONES = { favorable: "green", reserve: "amber", defavorable: "red" };
@@ -81,7 +82,11 @@ export const EVENT_LABELS = {
   job_created: "Offre créée",
   job_status_changed: "Statut d'offre modifié",
   job_deleted: "Offre supprimée",
-  staff_upserted: "Membre de l'équipe modifié",
+  rh_account_created: "Compte RH créé",
+  rh_account_deleted: "Compte RH supprimé",
+  rh_password_changed: "Mot de passe RH modifié",
+  rh_password_reset_emailed: "Nouveau mot de passe RH envoyé par e-mail",
+  rh_password_reset_failed: "Échec de l'envoi du mot de passe RH",
   account_registered: "Compte candidat créé",
   account_activated: "Compte candidat activé",
   account_deactivated: "Compte candidat désactivé",
@@ -93,7 +98,7 @@ export const EVENT_LABELS = {
   ai_criteria_updated: "Critères d'analyse IA modifiés"
 };
 export const EVENT_TONES = {
-  analysis_failed: "red", selection_email_failed: "red", password_reset_email_failed: "red", application_erased: "red", account_erased: "red", job_deleted: "red",
+  analysis_failed: "red", selection_email_failed: "red", password_reset_email_failed: "red", rh_password_reset_failed: "red", rh_account_deleted: "red", application_erased: "red", account_erased: "red", job_deleted: "red",
   analysis_completed: "indigo", interview_questions_generated: "indigo", ai_criteria_updated: "indigo",
   hr_decision_changed: "green", selection_email_sent: "green", evaluation_submitted: "green",
   interview_scheduled: "amber", interview_updated: "amber", pipeline_status_changed: "blue"
@@ -106,7 +111,6 @@ export function eventDetail(event) {
   if (event.event_type === "analysis_completed" && d.model) return `Modèle : ${d.model}`;
   if (event.event_type === "hr_note_added" && d.note) return d.note;
   if (event.event_type === "job_status_changed") return `${JOB_STATUS_LABELS[d.from] || d.from} → ${JOB_STATUS_LABELS[d.to] || d.to}`;
-  if (event.event_type === "staff_upserted") return `${d.email} · ${ROLE_LABELS[d.role] || d.role}${d.active === false ? " · désactivé" : ""}`;
   if (event.event_type === "interview_scheduled" && d.scheduled_at) return dateTime(d.scheduled_at);
   if (event.event_type === "evaluation_submitted" && d.total != null) return `Total ${d.total}/50 · ${EVAL_RECO[d.recommendation] || d.recommendation}`;
   if (event.event_type === "hr_score_set" && d.score != null) return `Note RH : ${d.score}/20`;
@@ -179,9 +183,9 @@ export function finalTone(score) {
   return pct >= 0.7 ? "green" : pct >= 0.5 ? "blue" : pct >= 0.35 ? "amber" : "red";
 }
 
-/* Droits (miroir du contrôle d'accès de routes.js) */
-export function permissions(role) {
-  return { write: role === "admin" || role === "recruteur", admin: role === "admin" };
+/* Droits : le compte RH unique a tous les droits (plus de rôles lecteur / recruteur / admin). */
+export function permissions() {
+  return { write: true, admin: true };
 }
 
 /* Export CSV — neutralise l'injection de formules tableur */

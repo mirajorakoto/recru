@@ -794,38 +794,49 @@ function createRepository(db) {
     return count;
   }
 
-  // --------------------------------------------------------- Personnel / rôles
-  function resolveStaffRole(email) {
-    const row = email
-      ? db.prepare("SELECT role, active FROM recruitment_staff WHERE email = ?").get(String(email).trim().toLowerCase())
-      : null;
-    if (row) return row.active ? row.role : null;
-    // Amorçage : tant qu'aucun admin actif n'est enregistré, l'admin hôte garde tous les droits.
-    return countActiveAdmins() === 0 ? "admin" : "recruteur";
+  // ------------------------------------------------------ Compte RH unique
+  // Une seule ligne possible (id = 1, imposé par la base) : administrateur et recruteur à la fois.
+  function getRhAccount({ withSecrets = false } = {}) {
+    const row = db.prepare(`
+      SELECT id, email, display_name, password_hash, token_version, last_login_at, created_at, updated_at
+      FROM recruitment_rh_account WHERE id = 1
+    `).get();
+    if (!row) return null;
+    if (withSecrets) return row;
+    const { password_hash, ...safe } = row; // eslint-disable-line no-unused-vars
+    return safe;
   }
 
-  function countActiveAdmins() {
-    return db.prepare("SELECT COUNT(*) AS n FROM recruitment_staff WHERE role='admin' AND active=1").get().n;
+  /** Crée le compte RH. Lève une erreur « RH_ACCOUNT_EXISTS » si un compte existe déjà (course incluse). */
+  function createRhAccount({ email, display_name, password_hash }) {
+    try {
+      db.prepare("INSERT INTO recruitment_rh_account (id, email, display_name, password_hash) VALUES (1, ?, ?, ?)")
+        .run(String(email).trim().toLowerCase(), display_name, password_hash);
+    } catch (error) {
+      if (String(error?.code || "").startsWith("SQLITE_CONSTRAINT")) {
+        const conflict = new Error("Un compte RH existe déjà.");
+        conflict.code = "RH_ACCOUNT_EXISTS";
+        throw conflict;
+      }
+      throw error;
+    }
+    return getRhAccount();
   }
 
-  function listStaff() {
-    return db.prepare("SELECT id, email, role, active, created_at, updated_at FROM recruitment_staff ORDER BY email")
-      .all().map((row) => ({ ...row, active: Boolean(row.active) }));
+  /** Change le mot de passe et révoque toutes les sessions RH ouvertes (token_version + 1). */
+  function setRhPassword(passwordHash) {
+    db.prepare("UPDATE recruitment_rh_account SET password_hash = ?, token_version = token_version + 1, updated_at = datetime('now') WHERE id = 1")
+      .run(passwordHash);
+    return getRhAccount();
   }
 
-  function getStaff(email) {
-    const row = db.prepare("SELECT id, email, role, active FROM recruitment_staff WHERE email = ?")
-      .get(String(email).trim().toLowerCase());
-    return row ? { ...row, active: Boolean(row.active) } : null;
+  function touchRhLogin() {
+    db.prepare("UPDATE recruitment_rh_account SET last_login_at = datetime('now') WHERE id = 1").run();
   }
 
-  function upsertStaff({ email, role, active }) {
-    email = String(email).trim().toLowerCase();
-    db.prepare(`
-      INSERT INTO recruitment_staff (email, role, active) VALUES (?, ?, ?)
-      ON CONFLICT(email) DO UPDATE SET role=excluded.role, active=excluded.active, updated_at=datetime('now')
-    `).run(email, role, active ? 1 : 0);
-    return getStaff(email);
+  /** Supprime le compte RH (les offres, candidatures et comptes candidats sont conservés). */
+  function deleteRhAccount() {
+    return db.prepare("DELETE FROM recruitment_rh_account WHERE id = 1").run().changes > 0;
   }
 
   // -------------------------------------------------------- Tableau de bord §22
@@ -879,7 +890,6 @@ function createRepository(db) {
     bumpTokenVersion,
     claimNextAnalysis,
     completeAnalysis,
-    countActiveAdmins,
     createAccount,
     createApplication,
     createInterview,
@@ -904,7 +914,6 @@ function createRepository(db) {
     getJobById,
     getJobByPublicId,
     getPublishedJobBySlug,
-    getStaff,
     listAccounts,
     listApplications,
     listApplicationsForAccount,
@@ -916,11 +925,9 @@ function createRepository(db) {
     listInterviewsForAccount,
     listJobs,
     listNotifications,
-    listStaff,
     markNotificationsRead,
     recordEvent,
     requeueAnalysis,
-    resolveStaffRole,
     retryAnalysis,
     saveInterviewQuestions,
     searchApplications,
@@ -934,7 +941,11 @@ function createRepository(db) {
     updateInterview,
     updateJob,
     upsertEvaluation,
-    upsertStaff
+    getRhAccount,
+    createRhAccount,
+    setRhPassword,
+    touchRhLogin,
+    deleteRhAccount
   };
 }
 

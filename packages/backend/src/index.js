@@ -1,6 +1,7 @@
 const express = require("express");
 const { createOpenAiService } = require("./ai");
 const { createRepository } = require("./repository");
+const { createRhAuth } = require("./rh-auth");
 const { createRouters } = require("./routes");
 const { runMigrations } = require("./migrations/runner");
 const { getEncryptionKey } = require("./security");
@@ -33,7 +34,12 @@ function withGuidance(aiService, loadGuidance) {
 
 function createRecruitmentModule(options) {
   if (typeof options?.db?.prepare !== "function") throw new Error("A shared better-sqlite3 db adapter is required.");
-  if (typeof options?.requireAdminSession !== "function") throw new Error("The host requireAdminSession middleware is required.");
+  // Sans `requireAdminSession` fourni par l'hôte, le module utilise sa propre authentification RH
+  // (un seul compte RH, créé par la première personne qui accède à l'espace RH : voir rh-auth.js).
+  if (options?.requireAdminSession !== undefined && typeof options.requireAdminSession !== "function") {
+    throw new Error("The host requireAdminSession middleware must be a function.");
+  }
+  const hostManagedAuth = typeof options?.requireAdminSession === "function";
   if (typeof options?.transporter?.sendMail !== "function") throw new Error("A SMTP transporter with sendMail is required.");
   const config = {
     storageDir: options.config?.storageDir,
@@ -52,22 +58,19 @@ function createRecruitmentModule(options) {
     publicBaseUrl: options.config?.publicBaseUrl || "",
     cookieSecure: options.config?.cookieSecure ?? process.env.NODE_ENV === "production",
     cookiePath: options.config?.cookiePath || "/",
-    sessionTtlHours: options.config?.sessionTtlHours || 24 * 7
+    sessionTtlHours: options.config?.sessionTtlHours || 24 * 7,
+    // Espace RH (compte unique)
+    rhSessionTtlHours: options.config?.rhSessionTtlHours || 12,
+    rhLoginRateLimit: options.config?.rhLoginRateLimit || 10,
+    rhForgotRateLimit: options.config?.rhForgotRateLimit || 5,
+    allowConsolePassword: options.config?.allowConsolePassword,
+    allowedOrigins: options.config?.allowedOrigins || []
   };
   if (!config.storageDir) throw new Error("config.storageDir is required.");
   runMigrations(options.db);
   // createRepository() complète aussi le schéma (colonnes/tables du cahier des charges) avant toute requête.
   const repository = createRepository(options.db);
   const encryptionKey = getEncryptionKey(options.config.fileKey);
-
-  // Amorçage des administrateurs RH (CDC §8) : e-mails séparés par des virgules ou tableau.
-  const adminEmails = [].concat(options.config?.adminEmails || [])
-    .flatMap((value) => String(value).split(","))
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-  for (const email of adminEmails) {
-    if (!repository.getStaff(email)) repository.upsertStaff({ email, role: "admin", active: true });
-  }
 
   const baseAiService = options.aiService || createOpenAiService({
     apiKey: options.config.openAiApiKey,
@@ -90,7 +93,13 @@ function createRecruitmentModule(options) {
     intervalMs: options.config?.purgeIntervalMs
   });
   const adminRouter = express.Router();
-  adminRouter.use(options.requireAdminSession, routers.adminRouter);
+  if (hostManagedAuth) {
+    adminRouter.use(options.requireAdminSession, routers.adminRouter);
+  } else {
+    const rhAuth = createRhAuth({ repository, config, encryptionKey, transporter: options.transporter });
+    adminRouter.use("/auth", express.json({ limit: "20kb" }), rhAuth.router);
+    adminRouter.use(rhAuth.requireRhSession, routers.adminRouter);
+  }
 
   return {
     adminRouter,

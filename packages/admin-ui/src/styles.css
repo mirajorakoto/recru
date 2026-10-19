@@ -186,3 +186,7 @@ body.rh-noscroll { overflow: hidden; }
 @media (max-width: 900px) { .rh-breakdown li { grid-template-columns: 80px 1fr 60px; } .rh-push { margin-left: 0; } }
 
 .rh-ref { font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--slate-soft); color: var(--text-2); padding: 4px 7px; border-radius: 6px; letter-spacing: .02em; }
+
+/* Accès RH : liens secondaires et message d'information */
+.rh-login-link { align-self: center; background: none; border: 0; padding: 4px 8px; cursor: pointer; font: inherit; }
+.rh-notice { background: var(--blue-soft); color: var(--text); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; line-height: 1.5; }

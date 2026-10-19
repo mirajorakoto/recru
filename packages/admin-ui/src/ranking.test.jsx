@@ -11,7 +11,7 @@ function mount(open) {
   ];
   const job = { id: 1, title: "Dev", status: "published", criteria: [], interviews_open: open, interviews_opens_at: open ? null : "2030-01-10T10:00:00.000Z" };
   const routes = {
-    "/moi": { email: "rh@x.mg", display_name: "RH", role: "recruteur" },
+    "/moi": { email: "rh@x.mg", display_name: "RH", role: "rh" },
     "/offres": { offres: [job] },
     "/candidatures?limit=100": { candidatures: [], pagination: {} },
     "/offres/1/classement": { offre: { id: 1, title: "Dev", interviews_open: open, interviews_opens_at: job.interviews_opens_at }, candidatures: rows, maximums: { final: 170 } }

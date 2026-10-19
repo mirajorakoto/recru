@@ -166,14 +166,21 @@ function ensureRecruitmentSchema(db) {
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
-      CREATE TABLE IF NOT EXISTS recruitment_staff (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT NOT NULL UNIQUE,
-        role TEXT NOT NULL CHECK (role IN ('admin', 'recruteur', 'lecteur')),
-        active INTEGER NOT NULL DEFAULT 1,
+      -- Un SEUL compte RH (administrateur et recruteur confondus) : la contrainte id = 1
+      -- garantit au niveau base de données qu'il ne peut jamais y en avoir deux.
+      CREATE TABLE IF NOT EXISTS recruitment_rh_account (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        email TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        token_version INTEGER NOT NULL DEFAULT 0,
+        last_login_at TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+
+      -- Les anciens rôles (admin / recruteur / lecteur) n'existent plus.
+      DROP TABLE IF EXISTS recruitment_staff;
 
       CREATE TABLE IF NOT EXISTS recruitment_interviews (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
