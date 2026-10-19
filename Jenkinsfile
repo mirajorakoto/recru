@@ -37,7 +37,7 @@ pipeline {
   triggers { pollSCM('H/5 * * * *') }
 
   parameters {
-    booleanParam(name: 'STRICT_TESTS', defaultValue: false,
+    booleanParam(name: 'STRICT_TESTS', defaultValue: true,
                  description: 'Un test en échec fait ÉCHOUER le build (à activer par défaut quand tous les tests passent)')
     booleanParam(name: 'DEPLOY', defaultValue: false,
                  description: 'Déployer la recette locale (http://localhost:8088) après un build réussi. Un build automatique (nouveau commit) déploie seulement s\'il est entièrement vert.')
@@ -45,6 +45,8 @@ pipeline {
                  description: 'Publier les images dans un registre (identifiant Jenkins « registry-credentials » requis)')
     string(name: 'REGISTRY', defaultValue: 'ghcr.io/mirajorakoto',
            description: 'Registre et espace de noms, ex. ghcr.io/mirajorakoto')
+    choice(name: 'MAIL_MODE', choices: ['auto', 'simulation'],
+           description: 'E-mails de la recette : auto = envoi réel avec le SMTP du fichier secret « recette-env » ; simulation = aucun envoi')
   }
 
   environment {
@@ -230,11 +232,21 @@ pipeline {
         }
       }
       steps {
-        sh '''
-          export WEB_PORT=8088 IMAGE_TAG="$TAG"
-          docker compose -p techzone-recette -f deploy/docker-compose.ci.yml up -d --wait --wait-timeout 180
-          docker compose -p techzone-recette -f deploy/docker-compose.ci.yml ps
-        '''
+        // Identifiants SMTP : fichier secret Jenkins « recette-env » (jamais dans Git).
+        withCredentials([file(credentialsId: 'recette-env', variable: 'RECETTE_ENV')]) {
+          // Un incident passager du démon Docker (WSL) ne doit pas faire échouer un build complet : 3 essais.
+          retry(3) {
+            sh '''
+              cp "$RECETTE_ENV" .env && chmod 600 .env
+              export WEB_PORT=8088 IMAGE_TAG="$TAG" MAIL_MODE="$MAIL_MODE"
+              rc=0
+              docker compose -p techzone-recette -f deploy/docker-compose.ci.yml up -d --wait --wait-timeout 180 || rc=1
+              rm -f .env
+              [ $rc -eq 0 ] || { sleep 15; exit 1; }
+              docker compose -p techzone-recette -f deploy/docker-compose.ci.yml ps
+            '''
+          }
+        }
         echo 'Recette disponible : http://localhost:8088/recrutement  et  http://localhost:8088/admin/recrutement'
       }
     }

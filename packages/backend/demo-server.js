@@ -51,10 +51,9 @@ if (config.openai.apiKey) {
 
 // Banc d'essai : l'utilisateur RH est choisi au démarrage (RECRUITMENT_DEMO_USER) parmi le personnel
 // de démonstration ci-dessous, pour essayer les rôles admin / recruteur / lecteur.
+// Une seule personne : à la fois administrateur et recruteur.
 const DEMO_STAFF = [
-  { email: "rh-demo@techzone.lat", role: "admin", display_name: "RH Démo (admin)" },
-  { email: "recruteur-demo@techzone.lat", role: "recruteur", display_name: "Recruteur Démo" },
-  { email: "lecteur-demo@techzone.lat", role: "lecteur", display_name: "Lecteur Démo" }
+  { email: "rrabe6402@gmail.com", role: "admin", display_name: "RH Démo (admin et recruteur)" }
 ];
 const demoUser = DEMO_STAFF.find((member) => member.email === process.env.RECRUITMENT_DEMO_USER) || DEMO_STAFF[0];
 if (process.env.RECRUITMENT_DEMO_USER && demoUser.email !== process.env.RECRUITMENT_DEMO_USER) {
